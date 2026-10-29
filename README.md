@@ -2,11 +2,11 @@
 
 Windows 64 位实验修改器，支持深色中文界面与单文件 EXE。连接时校验游戏版本，所有修改功能默认关闭。
 
-**[下载 v0.12.0 单文件 EXE](https://github.com/sdkdsd/PBZ-Trainer/releases/tag/v0.12.0)** · [验证范围](VALIDATION.md) · [更新记录](CHANGELOG.md)
+**[下载 v0.12.1 单文件 EXE](https://github.com/sdkdsd/PBZ-Trainer/releases/tag/v0.12.1)** · [验证范围](VALIDATION.md) · [更新记录](CHANGELOG.md)
 
 ## 下载与使用
 
-1. 打开上方 Release 页面，在 Assets 中下载 `PBZ-Trainer-v0.12.0.exe`。
+1. 打开上方 Release 页面，在 Assets 中下载 `PBZ-Trainer-v0.12.1.exe`。
 2. 进入游戏中可以操作角色的场景，双击 EXE；程序会尝试只读连接。
 3. 按需开启功能。无需安装 Python，也不需要额外的配置文件或 runtime 文件夹。
 
@@ -29,6 +29,12 @@ Windows 64 位实验修改器，支持深色中文界面与单文件 EXE。连�
 | 意识尘埃数量 | 0–2,000,000,000，单次设置，可撤销本窗口上次设置；游戏显示可能在获得／消耗后刷新 |
 
 资源锁定及部分倍率仍属实验功能，具体已验证范围见 [VALIDATION.md](VALIDATION.md)。未加入材料数量编辑、霸体、异常免疫或攻击倍速。
+
+## 场景切换
+
+强锁血与攻击倍率会保留用户的开启请求。加载或角色暂不可读时暂停写入，连续两个有效样本确认当前存活角色后重新绑定。攻击属性被游戏重算时维持本次设置的固定目标值，不重复叠乘。手动恢复会取消维持请求。其他资源锁在对象切换时仍可能停止，需要重新开启。
+
+本版修复已通过模拟回归及只读连接检查；真实跨场景持续性和最终伤害倍率仍待实战验证。
 
 ## 恢复与日志
 
@@ -65,7 +71,7 @@ python -m venv .build-venv
 ## 检查
 
 ```powershell
-python test_core.py
+python -m unittest discover -s . -p 'test_*.py'
 python app.py --self-check --report ui-check.json
 ```
 

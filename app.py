@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from core import Game
+from session_effects import SessionEffects
 from runtime_paths import RESOURCE_HOME, log_directory
 from ui_theme import configure, Tooltip, BG, CARD
 
@@ -100,7 +101,7 @@ class Panel:
     def __init__(self, root, autoconnect=True):
         self.root, self.game = root, None
         self.controls = []
-        root.title('影之刃零 · 修改器 0.12')
+        root.title('影之刃零 · 修改器 0.12.1')
         root.geometry(f'1040x{min(880, root.winfo_screenheight() - 90)}')
         root.minsize(960, 680)
         root.protocol('WM_DELETE_WINDOW', self.close)
@@ -116,7 +117,7 @@ class Panel:
         title.pack(side='left')
         ttk.Label(title, text='影之刃零', style='Title.TLabel').pack(anchor='w')
         edition = '单文件实验版' if getattr(sys, 'frozen', False) else '源码实验版'
-        ttk.Label(title, text=f'修改器   /   0.12 {edition}   /   悬停查看功能说明', style='Hint.TLabel').pack(anchor='w', pady=(2, 0))
+        ttk.Label(title, text=f'修改器   /   0.12.1 {edition}   /   悬停查看功能说明', style='Hint.TLabel').pack(anchor='w', pady=(2, 0))
         self.connect_button = ttk.Button(header, text='连接游戏', command=self.connect, style='Accent.TButton')
         self.connect_button.pack(side='right', padx=(16, 0))
         self.connection = tk.StringVar(value='●  未连接')
@@ -166,7 +167,7 @@ class Panel:
         self.auto_ultimate = tk.BooleanVar(value=False)
         self.one_hit = tk.BooleanVar(value=False)
         life = self.group(left, '生命保护', '两种保护方式互斥')
-        self.switch(life, '强锁血', '维持生命下限，普通受击不掉血', self.floor_lock, self.toggle_floor)
+        self.switch(life, '强锁血', '维持生命下限；加载时暂缓，新角色就绪后自动继续', self.floor_lock, self.toggle_floor)
         self.switch(life, '自动回血 · 备用', '受伤后补满，无法保证拦截致死伤害', self.auto_health, self.toggle_health)
         self.health_status = tk.StringVar(value='生命保护：关闭')
         ttk.Label(life, textvariable=self.health_status, style='Muted.Card.TLabel', wraplength=400).pack(anchor='w', pady=(7, 2))
@@ -209,8 +210,8 @@ class Panel:
 
         instructions = (
             ('开始使用', '先进入可操作角色的场景，再连接游戏。连接和读取不会修改数值；所有功能默认关闭。连接其他面板无法接管其已开启的功能。'),
-            ('生命与资源', '强锁血维持生命下限，自动回血在受伤后补满，两者互斥。角色切换、死亡或读取异常会停止保护并显示原因。资源锁约每 0.2 秒按需补满。葫芦／酒图标可能需要切换快捷药品刷新。'),
-            ('倍率与移动', '攻击倍率与高攻击秒杀互相替代，不叠乘。怪物倍率作用于玩家物理／元素承伤，可能覆盖同类环境伤害，不包含特殊真实伤害；锁血会掩盖效果。冲刺会被游戏重算，必要时重新应用移速。恢复移速不会关闭锁血。'),
+            ('生命与资源', '强锁血维持生命下限，自动回血在受伤后补满，两者互斥。角色切换、死亡或读取异常时暂停写入，保留开启请求；当前玩家存活稳定并重新核对后自动恢复。资源锁约每 0.2 秒按需补满。葫芦／酒图标可能需要切换快捷药品刷新。'),
+            ('倍率与移动', '攻击倍率与高攻击秒杀互相替代，不叠乘；游戏重算后维持本次目标，新角色稳定后重新应用。怪物倍率作用于玩家物理／元素承伤，可能覆盖同类环境伤害，不包含特殊真实伤害；锁血会掩盖效果。冲刺会被游戏重算，必要时重新应用移速。恢复移速不会关闭锁血。'),
             ('关闭与恢复', '底部“恢复倍率、移速、冷却与锁血”也会恢复强锁血下限。正常关闭本窗口时，会停止本窗口的资源锁并尝试恢复倍率、移速、冷却及生命下限。意识尘埃可能随自动存档保留，不随退出回退。'),
             ('验证范围', '普通受击锁血、杀气补满、主武器切换、1.5 倍移速及尘埃编辑已有用户反馈。攻击／秒杀、承伤倍率和持续资源锁的完整范围仍待验证。霸体尚未加入；异常防护和攻击倍速已停止制作。'))
         help_scroll = ttk.Scrollbar(help_page, orient='vertical')
@@ -289,6 +290,12 @@ class Panel:
         self.controls.append(button)
         return control
 
+    def effect_session(self):
+        session = getattr(self, '_effect_session', None)
+        if session is None or session.game is not self.game:
+            session = self._effect_session = SessionEffects(self.game)
+        return session
+
     def scroll(self, event):
         if event.widget.winfo_toplevel() is self.root and event.widget.winfo_class() not in ('TSpinbox', 'TEntry', 'Entry', 'Spinbox', 'Text'):
             self.canvas.yview_scroll(-int(event.delta / 120), 'units')
@@ -300,6 +307,7 @@ class Panel:
     def connect(self):
         try:
             if self.game:
+                self.effect_session().clear_attack()
                 self.game.stop_auto_health()
                 self.auto_health.set(False)
                 self.game.stop_auto_shachi()
@@ -380,6 +388,8 @@ class Panel:
         try:
             self.require_game()
             self.game.modifier(feature, float(text))
+            if feature == 'attack':
+                self.effect_session().capture_attack()
             self.refresh()
             self.message.set({'cooldown': '已缩短角色切换间隔与当前武器自身冷却；换装备后需重新应用，可随时恢复。',
                               'movement': '已应用行走、跑步、冲刺和蹲行倍率；可用“恢复移速”单独撤销。',
@@ -392,9 +402,11 @@ class Panel:
         try:
             self.require_game()
             if self.floor_lock.get():
-                self.game.start_floor_lock()
+                self.game.stop_auto_health()
                 self.auto_health.set(False)
-                self.health_status.set('强锁血：开启，下限重算后会自动维持')
+                session = self.effect_session()
+                session.floor_step()
+                self.health_status.set(session.floor_status)
                 self.message.set('已单次补满并维持生命下限；游戏重算时自动重设下限，不循环回填血量。')
             else:
                 result = self.game.stop_floor_lock()
@@ -412,14 +424,17 @@ class Panel:
             self.require_game()
             if self.one_hit.get():
                 self.game.start_one_hit()
-                self.message.set('已按原始基础攻击设为10000倍，替代普通倍率；是否秒杀仍待实战确认。取消勾选恢复原攻击。')
+                self.message.set('已按原始基础攻击设为10000倍并持续维持，替代普通倍率；是否秒杀仍待实战确认。取消勾选恢复原攻击。')
             else:
                 result = self.game.stop_one_hit()
                 self.message.set(result or '已关闭高攻击，恢复原始基础攻击；普通倍率可重新应用。')
+            self.effect_session().capture_attack()
             self.refresh()
         except Exception as exc:
             record = self.game.undo.get('attack') if self.game else None
             self.one_hit.set(bool(record and record.get('attack_mode') == 'one_hit'))
+            if self.game:
+                self.effect_session().capture_attack()
             self.message.set(str(exc))
 
     def toggle_health(self):
@@ -440,14 +455,10 @@ class Panel:
             self.message.set(str(exc))
 
     def health_tick(self):
-        try:
-            if self.game and self.floor_lock.get():
-                if self.game.check_floor_lock():
-                    self.health_status.set(f'强锁血：保持开启，已维持下限 {self.game.floor_repair_count} 次')
-        except Exception as exc:
-            self.floor_lock.set(False)
-            self.health_status.set('强锁血已停止：' + str(exc))
-            self.message.set(str(exc))
+        if self.game and self.floor_lock.get():
+            session = self.effect_session()
+            session.floor_step()
+            self.health_status.set(session.floor_status)
         try:
             if self.game and self.auto_health.get():
                 self.game.pulse_auto_health()
@@ -471,6 +482,8 @@ class Panel:
             self.message.set(str(exc))
 
     def resource_tick(self):
+        if self.game:
+            self.effect_session().attack_step()
         try:
             if self.game and self.auto_shachi.get():
                 self.game.pulse_auto_shachi()
@@ -530,6 +543,9 @@ class Panel:
     def restore(self):
         try:
             self.require_game()
+            self.floor_lock.set(False)
+            self.health_status.set('生命保护：已取消维持请求')
+            self.effect_session().clear_attack()
             results = self.game.restore_modifiers()
             if 'health_floor' not in self.game.undo:
                 self.floor_lock.set(False)
@@ -542,6 +558,11 @@ class Panel:
 
     def tick(self):
         try:
+            if self.game:
+                session = self.effect_session()
+                session.attack_step()
+                if session.attack_status and '暂缓' in session.attack_status:
+                    self.message.set(session.attack_status)
             self.refresh()
         except Exception as exc:
             self.connection.set('●  玩家不可读')
@@ -579,7 +600,7 @@ def main():
         root.withdraw()
     panel = Panel(root, autoconnect=not (args.self_check or args.preview))
     if args.preview:
-        root.title('影之刃零 · 0.12 界面预览')
+        root.title('影之刃零 · 0.12.1 界面预览')
         panel.connect_button.state(['disabled'])
         panel.connection.set('●  界面预览 · 未连接游戏')
         panel.message.set('预览模式：功能禁用，不连接或修改游戏。正在运行的修改器保持原状。')
