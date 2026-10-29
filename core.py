@@ -1,4 +1,4 @@
-"""Verified PBZ data fields only; no code patches, injection or save editing."""
+"""Verified PBZ data fields; optional teleport dispatch adapter is isolated in its own module."""
 from __future__ import annotations
 
 import ctypes as C
@@ -94,6 +94,7 @@ class Game:
         self.auto_health = None
         self.auto_medicines = {}
         self.auto_ultimate = None
+        self.teleport_unlock = None
         self.floor_repair_count = 0
         self.property_cache = {}
         self.names = {}
@@ -1111,7 +1112,26 @@ class Game:
                 for feature, config in self.weapon_cooldown_configs(context).items()]
             return result
 
+    def start_teleport_unlock(self):
+        if self.teleport_unlock is None:
+            from teleport_unlock import TeleportUnlock
+            self.teleport_unlock = TeleportUnlock(self)
+        self.teleport_unlock.start()
+        return self.teleport_unlock.status
+
+    def pulse_teleport_unlock(self):
+        if self.teleport_unlock:
+            self.teleport_unlock.pulse()
+            return self.teleport_unlock.status
+        return ''
+
+    def stop_teleport_unlock(self):
+        if getattr(self, 'teleport_unlock', None):
+            self.teleport_unlock.stop()
+
     def close(self):
+        if getattr(self, 'teleport_unlock', None):
+            self.teleport_unlock.close()
         self.auto_shachi = None
         self.auto_spirit_shadow = None
         self.auto_health = None

@@ -101,7 +101,7 @@ class Panel:
     def __init__(self, root, autoconnect=True):
         self.root, self.game = root, None
         self.controls = []
-        root.title('影之刃零 · 修改器 0.12.1')
+        root.title('影之刃零 · 修改器 0.13.0')
         root.geometry(f'1040x{min(880, root.winfo_screenheight() - 90)}')
         root.minsize(960, 680)
         root.protocol('WM_DELETE_WINDOW', self.close)
@@ -117,7 +117,7 @@ class Panel:
         title.pack(side='left')
         ttk.Label(title, text='影之刃零', style='Title.TLabel').pack(anchor='w')
         edition = '单文件实验版' if getattr(sys, 'frozen', False) else '源码实验版'
-        ttk.Label(title, text=f'修改器   /   0.12.1 {edition}   /   悬停查看功能说明', style='Hint.TLabel').pack(anchor='w', pady=(2, 0))
+        ttk.Label(title, text=f'修改器   /   0.13.0 {edition}   /   悬停查看功能说明', style='Hint.TLabel').pack(anchor='w', pady=(2, 0))
         self.connect_button = ttk.Button(header, text='连接游戏', command=self.connect, style='Accent.TButton')
         self.connect_button.pack(side='right', padx=(16, 0))
         self.connection = tk.StringVar(value='●  未连接')
@@ -166,6 +166,7 @@ class Panel:
         self.auto_wine = tk.BooleanVar(value=False)
         self.auto_ultimate = tk.BooleanVar(value=False)
         self.one_hit = tk.BooleanVar(value=False)
+        self.teleport_unlocked = tk.BooleanVar(value=False)
         life = self.group(left, '生命保护', '两种保护方式互斥')
         self.switch(life, '强锁血', '维持生命下限；加载时暂缓，新角色就绪后自动继续', self.floor_lock, self.toggle_floor)
         self.switch(life, '自动回血 · 备用', '受伤后补满，无法保证拦截致死伤害', self.auto_health, self.toggle_health)
@@ -202,6 +203,9 @@ class Panel:
         self.controls.append(button)
         self.cooldown = tk.StringVar(value='0.1')
         self.number_row(movement, '武器切换冷却', '0.1–2 秒 · 换装备后需重新应用', self.cooldown, 0.1, 2, '应用切换冷却', lambda: self.modify('cooldown', self.cooldown.get()))
+        self.switch(movement, '随地传送解锁', '实验，待实机验证：无需持有穿行符、不消耗；仅限已激活目的地，保留游戏原有战斗／剧情等限制', self.teleport_unlocked, self.toggle_teleport)
+        self.teleport_status = tk.StringVar(value='传送：关闭')
+        ttk.Label(movement, textvariable=self.teleport_status, style='Muted.Card.TLabel', wraplength=400).pack(anchor='w', pady=(5, 0))
         dust = self.group(right, '意识尘埃', '单次数量编辑，可撤销本窗口上次设置')
         button = ttk.Button(dust, text='意识尘埃数量', command=lambda: DustDialog(self.root, lambda: self.game))
         button.pack(fill='x', pady=(6, 2))
@@ -212,6 +216,7 @@ class Panel:
             ('开始使用', '先进入可操作角色的场景，再连接游戏。连接和读取不会修改数值；所有功能默认关闭。连接其他面板无法接管其已开启的功能。'),
             ('生命与资源', '强锁血维持生命下限，自动回血在受伤后补满，两者互斥。角色切换、死亡或读取异常时暂停写入，保留开启请求；当前玩家存活稳定并重新核对后自动恢复。资源锁约每 0.2 秒按需补满。葫芦／酒图标可能需要切换快捷药品刷新。'),
             ('倍率与移动', '攻击倍率与高攻击秒杀互相替代，不叠乘；游戏重算后维持本次目标，新角色稳定后重新应用。怪物倍率作用于玩家物理／元素承伤，可能覆盖同类环境伤害，不包含特殊真实伤害；锁血会掩盖效果。冲刺会被游戏重算，必要时重新应用移速。恢复移速不会关闭锁血。'),
+            ('随地传送解锁 · 实验', '目标是无需持有穿行符且不消耗，尚待实机验证。仅处理当前背包对穿行符的取值与单次消耗，不添加背包物品、不解锁地图目的地。保留原有战斗、剧情及其他可传送条件；关闭开关不影响锁血。正常退出撤销拦截，心跳超过约三秒未更新时拦截回到原有行为。'),
             ('关闭与恢复', '底部“恢复倍率、移速、冷却与锁血”也会恢复强锁血下限。正常关闭本窗口时，会停止本窗口的资源锁并尝试恢复倍率、移速、冷却及生命下限。意识尘埃可能随自动存档保留，不随退出回退。'),
             ('验证范围', '普通受击锁血、杀气补满、主武器切换、1.5 倍移速及尘埃编辑已有用户反馈。攻击／秒杀、承伤倍率和持续资源锁的完整范围仍待验证。霸体尚未加入；异常防护和攻击倍速已停止制作。'))
         help_scroll = ttk.Scrollbar(help_page, orient='vertical')
@@ -307,6 +312,9 @@ class Panel:
     def connect(self):
         try:
             if self.game:
+                self.game.stop_teleport_unlock()
+                self.teleport_unlocked.set(False)
+                self.teleport_status.set('传送：关闭')
                 self.effect_session().clear_attack()
                 self.game.stop_auto_health()
                 self.auto_health.set(False)
@@ -366,7 +374,8 @@ class Panel:
             active.append('武器切换冷却')
         for label, variable in (('自动回血', self.auto_health), ('锁杀气', self.auto_shachi),
                                 ('锁暗源', self.auto_spirit_shadow), ('锁葫芦', self.auto_gourd),
-                                ('锁酒', self.auto_wine), ('锁精纯杀气', self.auto_ultimate)):
+                                ('锁酒', self.auto_wine), ('锁精纯杀气', self.auto_ultimate),
+                                ('随地传送解锁（实验）', self.teleport_unlocked)):
             if variable.get():
                 active.append(label)
         self.effects.set('当前修改：' + ('、'.join(active) or '无'))
@@ -484,6 +493,8 @@ class Panel:
     def resource_tick(self):
         if self.game:
             self.effect_session().attack_step()
+        if self.game and self.teleport_unlocked.get():
+            self.teleport_status.set(self.game.pulse_teleport_unlock())
         try:
             if self.game and self.auto_shachi.get():
                 self.game.pulse_auto_shachi()
@@ -504,6 +515,22 @@ class Panel:
                 variable.set(False)
                 self.message.set({'ultimate': '精纯杀气', 'Hulu': '葫芦', 'FeiJiu': '酒', 'spirit_shadow': '暗源'}[kind] + '锁定已停止：' + str(exc))
         self.root.after(200, self.resource_tick)
+
+    def toggle_teleport(self):
+        try:
+            self.require_game()
+            if self.teleport_unlocked.get():
+                self.teleport_status.set(self.game.start_teleport_unlock())
+                self.message.set('传送实验已请求启用；实机效果待验证。该开关不改变锁血。')
+            else:
+                self.game.stop_teleport_unlock()
+                self.teleport_status.set('传送：关闭')
+                self.message.set('随地传送解锁已关闭，锁血保持原状。')
+            self.refresh()
+        except Exception as exc:
+            self.teleport_unlocked.set(False)
+            self.teleport_status.set('传送：未启用／已停用，' + str(exc))
+            self.message.set(str(exc))
 
     def toggle_resource(self, kind, variable):
         try:
@@ -574,6 +601,11 @@ class Panel:
 
     def close(self):
         if self.game:
+            try:
+                self.game.stop_teleport_unlock()
+            except Exception as exc:
+                messagebox.showwarning('传送拦截恢复未完成', str(exc) + '\n已停止传送心跳；请保留面板并重试关闭。')
+                return
             self.game.stop_auto_health()
             self.game.stop_auto_shachi()
             self.game.stop_auto_spirit_shadow()
@@ -600,7 +632,7 @@ def main():
         root.withdraw()
     panel = Panel(root, autoconnect=not (args.self_check or args.preview))
     if args.preview:
-        root.title('影之刃零 · 0.12.1 界面预览')
+        root.title('影之刃零 · 0.13.0 界面预览')
         panel.connect_button.state(['disabled'])
         panel.connection.set('●  界面预览 · 未连接游戏')
         panel.message.set('预览模式：功能禁用，不连接或修改游戏。正在运行的修改器保持原状。')
@@ -642,6 +674,7 @@ def main():
                   'auto_health_enabled': panel.auto_health.get(), 'visual_verified': False,
                   'floor_lock_enabled': panel.floor_lock.get(),
                   'one_hit_enabled': panel.one_hit.get(),
+                  'teleport_enabled': panel.teleport_unlocked.get(),
                   'new_resource_locks': [panel.auto_gourd.get(), panel.auto_wine.get(), panel.auto_ultimate.get(), panel.auto_spirit_shadow.get()],
                   'dust_dialog_created': bool(dust_dialog.window.winfo_exists()),
                   'dust_range': [int(float(dust_dialog.amount_input.cget('from'))), int(float(dust_dialog.amount_input.cget('to')))],
@@ -662,12 +695,13 @@ def main():
         if sys.stdout is not None:
             print(json.dumps(result))
         panel.close()
-        assert result['tabs'] == ['功能面板', '使用说明'] and result['switch_count'] == 8 and result['help_readonly']
+        assert result['tabs'] == ['功能面板', '使用说明'] and result['switch_count'] == 9 and result['help_readonly']
         if args.preview:
             assert result['preview_connect_disabled']
         assert result['all_disabled'] and not result['game_connected'] and not result['auto_shachi_enabled']
         assert not result['auto_health_enabled']
         assert not result['floor_lock_enabled']
+        assert not result['teleport_enabled'] and '随地传送解锁' in result['write_control_labels']
         assert not result['one_hit_enabled'] and result['attack_range'] == [0.1, 20.0]
         assert not any(result['new_resource_locks'])
         assert result['incoming_range'] == [0.1, 20.0]
@@ -685,6 +719,7 @@ def main():
             root.mainloop()
         finally:
             if panel.game and panel.game.handle:
+                panel.game.stop_teleport_unlock()
                 panel.game.stop_auto_health()
                 panel.game.stop_auto_shachi()
                 panel.game.stop_auto_spirit_shadow()
