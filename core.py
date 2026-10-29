@@ -103,7 +103,7 @@ class Game:
         with self.path.open('rb') as f:
             digest = hashlib.file_digest(f, 'sha256').hexdigest()
         if digest != self.profile['sha256']:
-            raise RuntimeError('游戏版本不匹配，已停止写入；此实验版只支持已核对版本')
+            raise RuntimeError('游戏版本不匹配，已停止写入；此版本只支持已核对版本')
         self.handle = open_process(0x410, False, self.pid)
         if not self.handle:
             raise RuntimeError('无法读取游戏进程')
@@ -471,7 +471,7 @@ class Game:
                 self.raw_write(address, after)
                 observed = self.read(address, len(after))
                 if observed != after:
-                    raise RuntimeError('游戏立即改写了试验值，请停止并检查')
+                    raise RuntimeError('游戏立即改写了设置值，请停止并检查')
                 self.log({'action': 'write_verified', **record})
             except Exception as exc:
                 cleanup = 'target_changed_or_unreadable'

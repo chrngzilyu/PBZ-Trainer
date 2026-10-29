@@ -1,4 +1,4 @@
-"""Small manual experimental panel. Connecting and refreshing are read-only."""
+"""Manual panel. Connecting and refreshing are read-only."""
 import argparse
 import json
 import sys
@@ -101,7 +101,7 @@ class Panel:
     def __init__(self, root, autoconnect=True):
         self.root, self.game = root, None
         self.controls = []
-        root.title('影之刃零 · 修改器 0.13.0')
+        root.title('影之刃零 · 修改器 0.13.1')
         root.geometry(f'1040x{min(880, root.winfo_screenheight() - 90)}')
         root.minsize(960, 680)
         root.protocol('WM_DELETE_WINDOW', self.close)
@@ -116,8 +116,7 @@ class Panel:
         title = ttk.Frame(header)
         title.pack(side='left')
         ttk.Label(title, text='影之刃零', style='Title.TLabel').pack(anchor='w')
-        edition = '单文件实验版' if getattr(sys, 'frozen', False) else '源码实验版'
-        ttk.Label(title, text=f'修改器   /   0.13.0 {edition}   /   悬停查看功能说明', style='Hint.TLabel').pack(anchor='w', pady=(2, 0))
+        ttk.Label(title, text='修改器   /   0.13.1   /   悬停查看功能说明', style='Hint.TLabel').pack(anchor='w', pady=(2, 0))
         self.connect_button = ttk.Button(header, text='连接游戏', command=self.connect, style='Accent.TButton')
         self.connect_button.pack(side='right', padx=(16, 0))
         self.connection = tk.StringVar(value='●  未连接')
@@ -175,10 +174,10 @@ class Panel:
         resources = self.group(left, '资源锁定', '消耗后自动补满，不改变容量')
         for label, note, kind, variable in (
                 ('锁杀气', '约每 0.2 秒检查', 'shachi', self.auto_shachi),
-                ('锁暗源', '影之武装资源 · 实验', 'spirit_shadow', self.auto_spirit_shadow),
-                ('锁葫芦次数', '切换快捷药品可刷新显示 · 实验', 'Hulu', self.auto_gourd),
-                ('锁酒次数', '维持已有酒的使用次数 · 实验', 'FeiJiu', self.auto_wine),
-                ('锁精纯杀气', '主武器绝技资源 · 实验', 'ultimate', self.auto_ultimate)):
+                ('锁暗源', '影之武装资源', 'spirit_shadow', self.auto_spirit_shadow),
+                ('锁葫芦次数', '切换快捷药品可刷新显示', 'Hulu', self.auto_gourd),
+                ('锁酒次数', '维持已有酒的使用次数', 'FeiJiu', self.auto_wine),
+                ('锁精纯杀气', '主武器绝技资源', 'ultimate', self.auto_ultimate)):
             callback = self.toggle_shachi if kind == 'shachi' else lambda k=kind, v=variable: self.toggle_resource(k, v)
             self.switch(resources, label, note, variable, callback)
         quick = self.group(left, '即时补充', '点击后单次执行')
@@ -189,7 +188,7 @@ class Panel:
             button.pack(side='left', fill='x', expand=True, padx=(0, 5))
             self.controls.append(button)
 
-        combat = self.group(right, '战斗调整', '攻击 / 承伤 0.1–20 倍 · 待实战对比')
+        combat = self.group(right, '战斗调整', '攻击 / 承伤 0.1–20 倍')
         self.attack = tk.StringVar(value='2.0')
         self.attack_input = self.number_row(combat, '玩家攻击倍率', '0.1–20 倍', self.attack, 0.1, 20, '应用攻击倍率', lambda: self.modify('attack', self.attack.get()))
         self.incoming = tk.StringVar(value='1.0')
@@ -203,7 +202,8 @@ class Panel:
         self.controls.append(button)
         self.cooldown = tk.StringVar(value='0.1')
         self.number_row(movement, '武器切换冷却', '0.1–2 秒 · 换装备后需重新应用', self.cooldown, 0.1, 2, '应用切换冷却', lambda: self.modify('cooldown', self.cooldown.get()))
-        self.switch(movement, '随地传送解锁', '实验，待实机验证：无需持有穿行符、不消耗；仅限已激活目的地，保留游戏原有战斗／剧情等限制', self.teleport_unlocked, self.toggle_teleport)
+        self.switch(movement, '随地传送解锁', '游戏会提示消耗穿行符，但实际不消耗。仅限已激活目的地，保留原有战斗／剧情等限制', self.teleport_unlocked, self.toggle_teleport)
+        ttk.Label(movement, text='会提示消耗穿行符，但实际不消耗。', style='Muted.Card.TLabel', wraplength=400).pack(anchor='w', pady=(5, 0))
         self.teleport_status = tk.StringVar(value='传送：关闭')
         ttk.Label(movement, textvariable=self.teleport_status, style='Muted.Card.TLabel', wraplength=400).pack(anchor='w', pady=(5, 0))
         dust = self.group(right, '意识尘埃', '单次数量编辑，可撤销本窗口上次设置')
@@ -216,9 +216,9 @@ class Panel:
             ('开始使用', '先进入可操作角色的场景，再连接游戏。连接和读取不会修改数值；所有功能默认关闭。连接其他面板无法接管其已开启的功能。'),
             ('生命与资源', '强锁血维持生命下限，自动回血在受伤后补满，两者互斥。角色切换、死亡或读取异常时暂停写入，保留开启请求；当前玩家存活稳定并重新核对后自动恢复。资源锁约每 0.2 秒按需补满。葫芦／酒图标可能需要切换快捷药品刷新。'),
             ('倍率与移动', '攻击倍率与高攻击秒杀互相替代，不叠乘；游戏重算后维持本次目标，新角色稳定后重新应用。怪物倍率作用于玩家物理／元素承伤，可能覆盖同类环境伤害，不包含特殊真实伤害；锁血会掩盖效果。冲刺会被游戏重算，必要时重新应用移速。恢复移速不会关闭锁血。'),
-            ('随地传送解锁 · 实验', '目标是无需持有穿行符且不消耗，尚待实机验证。仅处理当前背包对穿行符的取值与单次消耗，不添加背包物品、不解锁地图目的地。保留原有战斗、剧情及其他可传送条件；关闭开关不影响锁血。正常退出撤销拦截，心跳超过约三秒未更新时拦截回到原有行为。'),
+            ('随地传送解锁', '游戏会提示消耗穿行符，但实际不消耗。已有穿行符记录且数量为 0 时同样可用。不添加背包物品、不解锁未激活目的地；保留原有战斗、剧情及其他可传送条件。关闭开关不影响锁血。正常退出撤销拦截，心跳超过约三秒未更新时拦截回到原有行为。'),
             ('关闭与恢复', '底部“恢复倍率、移速、冷却与锁血”也会恢复强锁血下限。正常关闭本窗口时，会停止本窗口的资源锁并尝试恢复倍率、移速、冷却及生命下限。意识尘埃可能随自动存档保留，不随退出回退。'),
-            ('验证范围', '普通受击锁血、杀气补满、主武器切换、1.5 倍移速及尘埃编辑已有用户反馈。攻击／秒杀、承伤倍率和持续资源锁的完整范围仍待验证。霸体尚未加入；异常防护和攻击倍速已停止制作。'))
+            ('功能说明', '攻击倍率调整基础攻击，最终伤害由游戏计算。一键秒杀通过高攻击实现，特殊敌人和剧情规则仍按游戏处理。意识尘埃与资源数量可能需要正常获得、消耗或切换快捷药品后刷新显示。'))
         help_scroll = ttk.Scrollbar(help_page, orient='vertical')
         help_scroll.pack(side='right', fill='y')
         self.help_text = tk.Text(help_page, bg=BG, fg='#c2c8d3', font=('Microsoft YaHei UI', 10),
@@ -375,7 +375,7 @@ class Panel:
         for label, variable in (('自动回血', self.auto_health), ('锁杀气', self.auto_shachi),
                                 ('锁暗源', self.auto_spirit_shadow), ('锁葫芦', self.auto_gourd),
                                 ('锁酒', self.auto_wine), ('锁精纯杀气', self.auto_ultimate),
-                                ('随地传送解锁（实验）', self.teleport_unlocked)):
+                                ('随地传送解锁', self.teleport_unlocked)):
             if variable.get():
                 active.append(label)
         self.effects.set('当前修改：' + ('、'.join(active) or '无'))
@@ -433,7 +433,7 @@ class Panel:
             self.require_game()
             if self.one_hit.get():
                 self.game.start_one_hit()
-                self.message.set('已按原始基础攻击设为10000倍并持续维持，替代普通倍率；是否秒杀仍待实战确认。取消勾选恢复原攻击。')
+                self.message.set('已按原始基础攻击设为10000倍并持续维持，替代普通倍率；特殊敌人与剧情规则仍按游戏处理。取消勾选恢复原攻击。')
             else:
                 result = self.game.stop_one_hit()
                 self.message.set(result or '已关闭高攻击，恢复原始基础攻击；普通倍率可重新应用。')
@@ -521,7 +521,7 @@ class Panel:
             self.require_game()
             if self.teleport_unlocked.get():
                 self.teleport_status.set(self.game.start_teleport_unlock())
-                self.message.set('传送实验已请求启用；实机效果待验证。该开关不改变锁血。')
+                self.message.set('随地传送解锁已请求启用。游戏会提示消耗穿行符，但实际不消耗。该开关不改变锁血。')
             else:
                 self.game.stop_teleport_unlock()
                 self.teleport_status.set('传送：关闭')
@@ -632,7 +632,7 @@ def main():
         root.withdraw()
     panel = Panel(root, autoconnect=not (args.self_check or args.preview))
     if args.preview:
-        root.title('影之刃零 · 0.13.0 界面预览')
+        root.title('影之刃零 · 0.13.1 界面预览')
         panel.connect_button.state(['disabled'])
         panel.connection.set('●  界面预览 · 未连接游戏')
         panel.message.set('预览模式：功能禁用，不连接或修改游戏。正在运行的修改器保持原状。')
@@ -651,6 +651,18 @@ def main():
         dust_dialog = DustDialog(root, lambda: dust_fixture, visible=False)
         root.update()
         root.update_idletasks()
+        def ui_texts(widget):
+            values = []
+            if 'text' in widget.keys():
+                values.append(str(widget.cget('text')))
+            if hasattr(widget, 'tooltip'):
+                values.append(widget.tooltip.text)
+            if isinstance(widget, tk.Text):
+                values.append(widget.get('1.0', 'end'))
+            for child in widget.winfo_children():
+                values.extend(ui_texts(child))
+            return values
+        displayed_copy = '\n'.join([root.title(), *ui_texts(root)])
         profile = json.loads((RESOURCE_HOME / 'profile.json').read_text(encoding='utf8'))
         notices = (RESOURCE_HOME / 'assets' / 'THIRD_PARTY_NOTICES.txt').read_text(encoding='utf8')
         assert all(name in notices for name in ('Python', 'Tcl/Tk', 'PyInstaller'))
@@ -675,6 +687,8 @@ def main():
                   'floor_lock_enabled': panel.floor_lock.get(),
                   'one_hit_enabled': panel.one_hit.get(),
                   'teleport_enabled': panel.teleport_unlocked.get(),
+                  'legacy_copy_present': any(word in displayed_copy.casefold() for word in ('\u5b9e\u9a8c', 'experimental')),
+                  'teleport_consumption_notice': '会提示消耗穿行符，但实际不消耗' in displayed_copy,
                   'new_resource_locks': [panel.auto_gourd.get(), panel.auto_wine.get(), panel.auto_ultimate.get(), panel.auto_spirit_shadow.get()],
                   'dust_dialog_created': bool(dust_dialog.window.winfo_exists()),
                   'dust_range': [int(float(dust_dialog.amount_input.cget('from'))), int(float(dust_dialog.amount_input.cget('to')))],
@@ -701,6 +715,7 @@ def main():
         assert result['all_disabled'] and not result['game_connected'] and not result['auto_shachi_enabled']
         assert not result['auto_health_enabled']
         assert not result['floor_lock_enabled']
+        assert not result['legacy_copy_present'] and result['teleport_consumption_notice']
         assert not result['teleport_enabled'] and '随地传送解锁' in result['write_control_labels']
         assert not result['one_hit_enabled'] and result['attack_range'] == [0.1, 20.0]
         assert not any(result['new_resource_locks'])

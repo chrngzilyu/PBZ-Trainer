@@ -1,4 +1,4 @@
-"""Experimental, item-specific native dispatch adapters; no game files or inventory edits.
+"""Item-specific native dispatch adapters; no game files or inventory edits.
 
 Only the reflected GetItemNumInfo and RemovePropsFromBackPack dispatch pointers
 are replaced. Other items/callers and script-VM frames forward to the originals.
@@ -374,7 +374,7 @@ class TeleportUnlock:
                 self.pages.write(self.pages.address + 0x58, struct.pack('<ii', max(1, state['amount']), max(1, state['maximum'])))
                 self.pages.write(self.pages.address + 0x50, struct.pack('<Q', counter() + 3 * self.clock_frequency))
                 self.pages.write(self.pages.address + 8, struct.pack('<I', 1))
-                self.status = '随地传送解锁：已启用（实验，待实机验证）'
+                self.status = '随地传送解锁：已启用'
                 return True
             except Exception as error:
                 self.candidate, self.samples = None, 0

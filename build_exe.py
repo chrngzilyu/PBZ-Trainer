@@ -28,15 +28,15 @@ def main():
     work.mkdir(parents=True, exist_ok=True)
     version = work / 'version.txt'
     version.write_text("""VSVersionInfo(
-  ffi=FixedFileInfo(filevers=(0,13,0,0), prodvers=(0,13,0,0), mask=0x3f, flags=0x0,
+  ffi=FixedFileInfo(filevers=(0,13,1,0), prodvers=(0,13,1,0), mask=0x3f, flags=0x0,
                    OS=0x40004, fileType=0x1, subtype=0x0, date=(0,0)),
   kids=[StringFileInfo([StringTable('080404b0', [
     StringStruct('FileDescription', '影之刃零修改器'),
-    StringStruct('FileVersion', '0.13.0'),
+    StringStruct('FileVersion', '0.13.1'),
     StringStruct('InternalName', 'PBZTrainer'),
     StringStruct('OriginalFilename', '影之刃零修改器.exe'),
     StringStruct('ProductName', '影之刃零修改器'),
-    StringStruct('ProductVersion', '0.13.0')])]),
+    StringStruct('ProductVersion', '0.13.1')])]),
     VarFileInfo([VarStruct('Translation', [2052, 1200])])])
 """, encoding='utf8')
     inputs = ['app.py', 'core.py', 'ui_theme.py', 'session_effects.py', 'teleport_unlock.py', 'runtime_paths.py', 'profile.json',
