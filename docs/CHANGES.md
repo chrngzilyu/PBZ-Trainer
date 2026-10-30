@@ -80,3 +80,12 @@
 - **改了什么**：build job 的 `Build one-file EXE` 步骤增加环境变量 `PYTHONIOENCODING=utf-8`。
 - **为什么**：PyInstaller 已成功产出 EXE 与 `build-report.json`，但 `build_exe.py` 最后 `print` 含中文路径时，Actions 托管 runner（cp1252）报 `UnicodeEncodeError`，步骤以非零退出，artifact 未上传。
 - **影响/兼容**：只影响 CI 环境；本机中文 Windows 控制台（GBK）本来就能打印。不改 `build_exe.py` 业务逻辑。
+
+## 第 1–3 步：重构（分支 `step1-3-refactor`）
+
+方案依据：`/workspace/plan-step1-3-refactor.md`。目标是“对玩家无可见变化”：每个提交都必须让 golden trace 与 C0 基线逐字节一致，原有 110 个用例不改。
+
+### C0：行为快照基线（golden trace）
+- **改了什么**：新增 `test_golden_trace.py` 与 `tests_golden/trace.json`。夹具在内存里构造一套完整的假游戏映像（名称池、UObject 头、反射字段链、World→玩家指针链、武器 TMap、背包子系统 TMap、药品 TMap），让**真实的** `Game` 代码（`obj/token/property/context/map_rows/patch/restore_record/...`）在上面运行；只替换最底层的 `read/raw_write/log/alive`，并给 `property` 套记录器。按顺序记录每次读（地址、长度）、写（地址、字节）、写失败注入、`property` 参数、日志行（不含时间和 pid）、每一步的返回值或异常类型与中文文案、`rollback_errors`、上报的 issue、最终 undo。共 30 个场景：status、全部 targets、TMap/武器/背包/药品解析、refill ×5 与 refill_ultimate、五种锁的 start/pulse（补/不补/异常/玩家切换）/stop、attack/one_hit、incoming、movement（含部分分量恢复）、cooldown、生命下限锁（修复、部分恢复、死亡、切换、恢复失败）、dust、patch 守卫、写入中途失败与回滚失败。
+- **为什么**：重构是“纯搬家 + 等价替换”，需要一个比现有单测更细的安全网，能发现读写顺序、地址、调用次数、文案的任何漂移。
+- **影响**：只加测试，不改运行时代码。用例数 110 → 112。基线在旧代码（`step8-ci` 7758d9c）上生成。只有有意且在本文档写明原因的行为变化才允许 `python test_golden_trace.py --update` 重录。
