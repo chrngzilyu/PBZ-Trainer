@@ -1,93 +1,26 @@
 """Verified PBZ data fields; optional teleport dispatch adapter is isolated in its own module."""
 from __future__ import annotations
 
-import ctypes as C
-import ctypes.wintypes as W
 import datetime as dt
 import hashlib
 import json
 import math
-from pathlib import Path
 import struct
 import threading
 import time
 
 from runtime_paths import RESOURCE_HOME, log_directory
 import offsets as O
-from errors import (LOG, ROLLBACK, IssueQueue, ReadError, RollbackError, VersionError, WriteError,
-                    report_issue)
+from errors import LOG, ROLLBACK, IssueQueue, RollbackError, VersionError, report_issue
+
+from win32 import (K, ProcessEntry, api, close_handle, discover, exit_code, image_path, open_process,  # noqa: F401  re-exported
+                   process_first, process_next, query_path, rpm, snapshot, wpm)
+from memory import DataWriteError, ProcessMixin  # noqa: F401  re-exported
 
 HOME = RESOURCE_HOME
-K = C.WinDLL('kernel32', use_last_error=True)
 
 
-def api(name, args, result):
-    f = getattr(K, name)
-    f.argtypes, f.restype = args, result
-    return f
-
-
-open_process = api('OpenProcess', [W.DWORD, W.BOOL, W.DWORD], W.HANDLE)
-close_handle = api('CloseHandle', [W.HANDLE], W.BOOL)
-rpm = api('ReadProcessMemory', [W.HANDLE, C.c_void_p, C.c_void_p, C.c_size_t, C.POINTER(C.c_size_t)], W.BOOL)
-wpm = api('WriteProcessMemory', [W.HANDLE, C.c_void_p, C.c_void_p, C.c_size_t, C.POINTER(C.c_size_t)], W.BOOL)
-snapshot = api('CreateToolhelp32Snapshot', [W.DWORD, W.DWORD], W.HANDLE)
-query_path = api('QueryFullProcessImageNameW', [W.HANDLE, W.DWORD, W.LPWSTR, C.POINTER(W.DWORD)], W.BOOL)
-exit_code = api('GetExitCodeProcess', [W.HANDLE, C.POINTER(W.DWORD)], W.BOOL)
-
-
-class ProcessEntry(C.Structure):
-    _fields_ = [('size', W.DWORD), ('usage', W.DWORD), ('pid', W.DWORD), ('heap', C.c_size_t),
-               ('module', W.DWORD), ('threads', W.DWORD), ('parent', W.DWORD), ('priority', W.LONG),
-               ('flags', W.DWORD), ('exe', W.WCHAR * 260)]
-
-
-process_first = api('Process32FirstW', [W.HANDLE, C.POINTER(ProcessEntry)], W.BOOL)
-process_next = api('Process32NextW', [W.HANDLE, C.POINTER(ProcessEntry)], W.BOOL)
-
-
-class DataWriteError(WriteError):
-    def __init__(self, message, bytes_written):
-        super().__init__(message)
-        self.bytes_written = bytes_written
-
-
-def image_path(handle):
-    buffer = C.create_unicode_buffer(32768)
-    size = W.DWORD(len(buffer))
-    if not query_path(handle, 0, buffer, C.byref(size)):
-        raise RuntimeError('无法读取进程路径')
-    return Path(buffer.value)
-
-
-def discover():
-    found = []
-    snap = snapshot(2, 0)
-    if snap == C.c_void_p(-1).value:
-        raise RuntimeError('无法枚举游戏进程')
-    try:
-        entry = ProcessEntry()
-        entry.size = C.sizeof(entry)
-        ok = process_first(snap, C.byref(entry))
-        while ok:
-            if entry.exe.casefold() == 'pbz.exe':
-                h = open_process(0x1000, False, entry.pid)
-                if h:
-                    try:
-                        p = image_path(h)
-                        if p.as_posix().casefold().endswith('/pbz/platform/steam/pbz.exe'):
-                            found.append((entry.pid, p))
-                    finally:
-                        close_handle(h)
-            ok = process_next(snap, C.byref(entry))
-    finally:
-        close_handle(snap)
-    if len(found) != 1:
-        raise RuntimeError('请先运行游戏；需要且只能存在一个受支持的游戏进程')
-    return found[0]
-
-
-class Game:
+class Game(ProcessMixin):
     def __init__(self):
         self.lock = threading.RLock()
         self.handle = None
@@ -130,22 +63,6 @@ class Game:
         except BaseException:
             self.close()
             raise
-
-    def alive(self):
-        code = W.DWORD()
-        return bool(self.handle and exit_code(self.handle, C.byref(code)) and code.value == 259)
-
-    def read(self, address, size):
-        if not self.handle or not (0x10000 <= address < 0x7fffffffffff) or not 0 < size <= 1024 * 1024:
-            raise RuntimeError('读取目标无效')
-        buffer = C.create_string_buffer(size)
-        done = C.c_size_t()
-        if not rpm(self.handle, address, buffer, size, C.byref(done)) or done.value != size:
-            raise ReadError('游戏内存读取失败，可能正在切场景或已退出')
-        return buffer.raw[:size]
-
-    def qword(self, address):
-        return struct.unpack('<Q', self.read(address, 8))[0]
 
     def refresh_pool(self):
         self.pool = self.base + self.profile['name_pool_rva']
@@ -425,23 +342,6 @@ class Game:
         with (folder / 'actions.jsonl').open('a', encoding='utf8') as f:
             f.write(json.dumps(row, ensure_ascii=False) + '\n')
             f.flush()
-
-    def raw_write(self, address, payload):
-        if len(payload) not in (4, 8, 16) or not self.alive():
-            raise RuntimeError('写入范围或进程状态无效')
-        h = open_process(0x438, False, self.pid)
-        if not h:
-            raise RuntimeError('无法取得数据写入权限')
-        try:
-            if image_path(h) != self.path:
-                raise RuntimeError('写入进程身份变化')
-            done = C.c_size_t()
-            buffer = C.create_string_buffer(payload)
-            ok = wpm(h, address, buffer, len(payload), C.byref(done))
-            if not ok or done.value != len(payload):
-                raise DataWriteError('数据写入失败，错误码 ' + str(C.get_last_error()), done.value)
-        finally:
-            close_handle(h)
 
     def patch(self, feature, values, expected_token=None, expected_player_token=None):
         with self.lock:

@@ -104,3 +104,11 @@
 - **未迁移（有意保留）**：Win32 访问掩码 0x1000/0x410/0x438、PE 头 0x8664、地址范围、FName 的 `0xffffffff` 掩码、UObject/FProperty 结构内部布局、业务范围上限（1000000/100/50/2000000000，已登记在 `LIMITS` 但本次不替换，避免改动面过大）。
 - **为什么**：游戏更新时只需改 `offsets.py` 一处。
 - **影响**：生成的地址、读取尺寸、`property()` 参数和调用顺序完全不变；golden trace 逐字节一致。用例 116 → 117。
+
+### C3：拆出 `win32.py` 与 `memory.py`
+- **改了什么**：
+  - 新增 `win32.py`：从 core 原样搬来 `K`、`api()`、`open_process/close_handle/rpm/wpm/snapshot/query_path/exit_code`、`ProcessEntry`、`process_first/next`、`image_path()`、`discover()`。
+  - 新增 `memory.py`：`DataWriteError` 与 `ProcessMixin`（`alive/read/qword/raw_write`，代码一字未改）。
+  - `core.py`：`class Game(ProcessMixin)`，并**再导出** `api, open_process, close_handle, image_path, wpm, rpm, snapshot, discover, ProcessEntry, K, DataWriteError` 等名字，所以 `teleport_unlock.py`、`app.py`、测试的 import 都不用改。去掉了已不再使用的 `ctypes/Path/ReadError/WriteError` 导入。
+- **为什么**：Win32 绑定和进程内存读写是最底层，单独成文件后可以单独做替身测试，core 也更短。
+- **影响**：方法仍挂在同一个 `Game` 类上（mixin），测试对 `g.read/g.raw_write` 的补丁照常生效；golden trace 一致。
