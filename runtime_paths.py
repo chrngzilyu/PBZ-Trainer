@@ -21,3 +21,10 @@ def log_directory():
 
 def hash_cache_path():
     return user_data_home() / 'hash-cache.json'
+
+
+def settings_path():
+    override = os.environ.get('PBZ_TRAINER_SETTINGS')
+    if override:
+        return Path(override)
+    return user_data_home() / 'settings.json'

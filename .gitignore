@@ -15,3 +15,6 @@ runtime/
 # fork step 5/6: per-user files in source mode
 hash-cache.json
 hash-cache.json.tmp
+settings.json
+settings.json.tmp
+settings.json.bad-*

@@ -164,3 +164,13 @@
 - **改了什么**：`app.py` 新增命令行 `--no-hash-cache`（设置 `PBZ_TRAINER_NO_HASH_CACHE=1`，强制整文件 SHA256）；`--check-game` 也总是完整校验；连接成功提示里加"版本校验：缓存命中 / 完整校验"。README 新增「启动校验缓存」一节（位置、原理、强制完整校验、重置、强度说明）。`test_exe_hash.py` 加 1 个用例检查开关存在。
 - **为什么**：给不放心缓存的用户留逃生开关，也让用户能看到这次连接到底走了哪条路。
 - **影响**：不加参数时行为同 C1；只改提示文案和命令行参数，不碰任何写内存路径，golden trace 不变。
+
+### C3：新增 `settings.py`（纯 Python，尚未接入界面）
+- **改了什么**：
+  - 新增 `settings.py`：`load()` / `save()` / `hint_text()`，白名单只有四个数值 `attack/incoming/movement/cooldown`（范围与界面 Spinbox 相同），外加 `last_switches`（上次开过的开关名字列表）。文件格式 `{"schema":1,"app_version":…,"values":{…},"last_switches":[…]}`，**不存窗口位置**，也不存任何开关的开/关状态。
+  - 异常处理：文件不存在 → 默认值；JSON 损坏 / 顶层不是对象 / schema 缺失 → 原文件改名为 `settings.json.bad-<时间>` 后用默认值并给出提示；schema 比当前新 → 只读、用默认值、不覆盖；单项非法（越界、非数字、nan/inf）→ 只该项回默认；读失败 → 只读 + 提示。写入原子替换（tmp + fsync + `os.replace`），失败返回 False、不留 tmp。
+  - `runtime_paths.py` 新增 `settings_path()`（打包 `%LOCALAPPDATA%\PBZTrainer\settings.json`，源码模式仓库目录，环境变量 `PBZ_TRAINER_SETTINGS` 可覆盖）。
+  - `build_exe.py` inputs 加 `settings.py`；`.gitignore` 加 `settings.json`、`.tmp`、`.bad-*`。
+  - 新增 `test_settings.py`（14 个）：往返、无 window 字段、损坏隔离、新 schema 只读、单项回退、边界、文件里写开关键被忽略、提示只是字符串、原子写、路径规则等。
+- **为什么**：先把可单测的纯逻辑落地，再接 Tk。
+- **影响**：界面还没调用它，用户无可见变化；golden trace 不变。
