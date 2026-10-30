@@ -14,10 +14,10 @@ Windows x64 外部修改器，当前适配版本与指纹在 profile.json。
 - session_effects.py：加载暂态暂停、当前玩家重绑定和攻击固定目标维护。
 - test_session_persistence.py：场景切换与恢复请求回归。
 - runtime_paths.py：内嵌资源路径；持久数据目录 user_data_home()（日志、settings.json、hash-cache.json）。
-- exe_hash.py：启动版本校验的 SHA256 缓存（第 6 步）；缓存只能导致多算一次哈希，不得放行不匹配版本。test_exe_hash.py 覆盖。
-- settings.py：四个数值输入与上次开关名字的读写（第 5 步，纯 Python）；test_settings.py、test_settings_panel.py 覆盖。
+- exe_hash.py：启动版本校验的 SHA256 缓存；缓存只能导致多算一次哈希，不得放行不匹配版本。test_exe_hash.py 覆盖。
+- settings.py：四个数值输入与上次开关名字的读写（纯 Python，设置保存）；test_settings.py、test_settings_panel.py 覆盖。
 - test_core.py：假内存测试，不连接实际游戏。
-- errors.py：错误分级、IssueQueue、状态栏汇总（第 4 步）。
+- errors.py：错误分级、IssueQueue、状态栏汇总。
 - test_errors.py：错误分类与 session 严重错误回归。
 - build_exe.py / build_exe.ps1：隔离环境构建单文件 EXE；inputs 须含全部会被报告哈希的源文件（含 errors.py、exe_hash.py、settings.py）。
 - .github/workflows/ci.yml：Windows + Python 3.13 CI（unittest、self-check；可选打包）。

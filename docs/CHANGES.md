@@ -2,9 +2,9 @@
 
 本文件逐条记录 fork（chrngzilyu/PBZ-Trainer）相对上游 sdkdsd/PBZ-Trainer v0.13.1 的每一处改动：位置、改了什么、为什么、对行为与兼容性的影响。
 
-## 第 4 步：异常处理与错误提示（分支 `step4-error-handling`）
+## 异常处理与错误提示（分支 `step4-error-handling`）
 
-方案依据：先盘点约 60 处 `except`，确认真正危险的是 4 处回滚失败被 `pass` 吞掉，以及 `session_effects` 把严重错误降级为“暂缓”。本步只做错误分级与提示，不改任何偏移、写入目标或功能逻辑。
+方案依据：先盘点约 60 处 `except`，确认真正危险的是 4 处回滚失败被 `pass` 吞掉，以及 `session_effects` 把严重错误降级为“暂缓”。本项只做错误分级与提示，不改任何偏移、写入目标或功能逻辑。
 
 ### 1. 新增 `errors.py`
 - **改了什么**：新增错误类别 `TargetGone`（目标失效）、`ReadError`（读失败）、`WriteError`（写失败）、`RollbackError`（回滚失败，带 `rollback_errors` 列表）、`VersionError`（版本校验失败），以及日志异常类别 `LOG`。新增线程安全、有界（默认 100 条）的 `IssueQueue`，提供 `report / drain / read_failed / read_ok`。新增纯函数 `classify(exc)`、`summarize_issues(issues) -> (颜色, 文本)`、`recent_lines()`、`report_issue(game, ...)`。
@@ -55,9 +55,9 @@
 - 本机（Linux + `/tmp/winshim` 替身）：`test_core` + `test_errors` 共 78 个全部通过；`test_teleport_unlock` 改动前后都是同样 17 个错误（需要真实 Windows API）。
 - **只能在 Windows 上验证**：`app.py` 的状态栏、按钮、弹窗（本机没有 tkinter）；`test_session_persistence.py`；`test_teleport_unlock.py`；实机游戏中的回滚失败场景。
 
-## 第 8 步：GitHub Actions Windows 自动测试（分支 `step8-ci`）
+## Windows CI（分支 `step8-ci`）
 
-方案依据：`/workspace/plan-step8-ci.md`。本步只加 CI 与补齐构建输入清单，不改任何业务逻辑、偏移或功能。
+方案依据：`/workspace/plan-step8-ci.md`。本项只加 CI 与补齐构建输入清单，不改任何业务逻辑、偏移或功能。
 
 ### 1. 新增 `.github/workflows/ci.yml`
 - **改了什么**：新增 workflow `CI`。触发：`push`（分支 `main`/`master`/`step*` 与标签 `v*`）、`pull_request`、`workflow_dispatch`。权限仅 `contents: read`。两个 job，均在 `windows-latest` + Python 3.13：
@@ -67,13 +67,13 @@
 - **影响/兼容**：不改运行时代码。CI 绿只说明单元测试与自检通过，**不等于**实机游戏验收。公开 fork 上 Actions 分钟一般够用；不注入密钥、不连游戏。
 
 ### 2. `build_exe.py` 的 `inputs` 列表
-- **改了什么**：在 `inputs` 中补上第 4 步新增的 `errors.py`（插在 `core.py` 与 `ui_theme.py` 之间）。
+- **改了什么**：在 `inputs` 中补上异常处理阶段新增的 `errors.py`（插在 `core.py` 与 `ui_theme.py` 之间）。
 - **为什么**：PyInstaller 会因 import 把 `errors.py` 打进包，但构建报告的 `input_sha256` 原先漏记该文件；首次跑 build job 时若漏记也不利于审计。
 - **影响/兼容**：打包产物内容不变（本来就会被 import 进来）；仅报告多一条哈希。本地构建命令不变。
 
 ### 3. CI 首次跑红后的最小修复：`test_session_persistence.py`
-- **改了什么**：假 Panel 夹具（`Panel.__new__`，不走 `__init__`）补上第 4 步新增的 `issues` / `issue_log` / `rollback_warned` / `issue_text` / `issue_label`。
-- **为什么**：`tick()` 末尾会调用 `drain_issues()` 与 `issues.read_ok()`；夹具原先没这些字段，Windows CI 上 6 个 session 用例报 `AttributeError`。本机 Linux 从未跑过该文件，第 4 步漏测。
+- **改了什么**：假 Panel 夹具（`Panel.__new__`，不走 `__init__`）补上异常处理阶段新增的 `issues` / `issue_log` / `rollback_warned` / `issue_text` / `issue_label`。
+- **为什么**：`tick()` 末尾会调用 `drain_issues()` 与 `issues.read_ok()`；夹具原先没这些字段，Windows CI 上 6 个 session 用例报 `AttributeError`。本机 Linux 从未跑过该文件，异常处理阶段漏测。
 - **影响/兼容**：只改测试夹具，不改运行时代码；真实 `Panel.__init__` 本来就会初始化这些字段。
 
 ### 4. CI 打包：控制台编码
@@ -81,7 +81,7 @@
 - **为什么**：PyInstaller 已成功产出 EXE 与 `build-report.json`，但 `build_exe.py` 最后 `print` 含中文路径时，Actions 托管 runner（cp1252）报 `UnicodeEncodeError`，步骤以非零退出，artifact 未上传。
 - **影响/兼容**：只影响 CI 环境；本机中文 Windows 控制台（GBK）本来就能打印。不改 `build_exe.py` 业务逻辑。
 
-## 第 1–3 步：重构（分支 `step1-3-refactor`）
+## 重构：偏移集中 / core 拆分 / ResourceLock（分支 `step1-3-refactor`）
 
 方案依据：`/workspace/plan-step1-3-refactor.md`。目标是“对玩家无可见变化”：每个提交都必须让 golden trace 与 C0 基线逐字节一致，原有 110 个用例不改。
 
@@ -145,10 +145,10 @@
 
 ### C8：文档收尾
 - **改了什么**：README 新增「代码结构」「游戏更新后怎么改偏移」「测试与 golden trace」三节；AGENTS.md 项目地图加入新文件与分层规则，以及“重构提交不得改变 golden trace”。
-- **第 1–3 步总结**：偏移集中到 offsets.py，core.py 从约 1100 行拆成分层 mixin（约 95 行），两份 TMap 解析合一，四个资源锁变成配置表。整个过程中 golden trace 一直逐字节不变，原有 110 个测试没有改动（新增 13 个，现共 123 个），**对玩家无可见变化**。偏离方案的地方：没有另加 check/read_current 辅助函数（`*F.args`/`F.current` 已覆盖）；业务上限字面量留在原处；`_sparse_rows` 不加 bulk 参数，改由调用方决定怎么读。
+- **重构总结**：偏移集中到 offsets.py，core.py 从约 1100 行拆成分层 mixin（约 95 行），两份 TMap 解析合一，四个资源锁变成配置表。整个过程中 golden trace 一直逐字节不变，原有 110 个测试没有改动（新增 13 个，现共 123 个），**对玩家无可见变化**。偏离方案的地方：没有另加 check/read_current 辅助函数（`*F.args`/`F.current` 已覆盖）；业务上限字面量留在原处；`_sparse_rows` 不加 bulk 参数，改由调用方决定怎么读。
 
 
-## 第 5–6 步：配置持久化 / 启动校验缓存（分支 `step5-6-settings-cache`）
+## 设置保存 / 启动校验缓存（分支 `step5-6-settings-cache`）
 
 ### C1：新增 `exe_hash.py`，启动版本校验改用哈希缓存
 - **改了什么**：
@@ -180,7 +180,7 @@
   - `Panel(root, autoconnect, persist=False)`：只有正常启动时 `main()` 传 `persist=True`；`--self-check`、`--preview` 下不读也不写设置文件（测试或其他代码直接构造 Panel 时默认也不碰文件）。
   - 启动时 `apply_settings()` 只把四个数值填回输入框，并在提示行下方新增一行文字"上次开过：…（仅提示，本次均未开启…）"。**这个函数不碰任何开关变量**。
   - 九个开关变量加 `trace_add`：变成开启时把名字记进 `used_switches`，只用来下次生成提示文字。
-  - 保存时机：点"应用"且写入成功后；正常关闭时（`close()` 最前面，失败不阻挡后续恢复流程）。设置文件损坏、来自新版本、保存失败 → 状态栏灰色提示（第 4 步的日志级别），不弹窗。
+  - 保存时机：点"应用"且写入成功后；正常关闭时（`close()` 最前面，失败不阻挡后续恢复流程）。设置文件损坏、来自新版本、保存失败 → 状态栏灰色提示（走异常处理的日志级别），不弹窗。
   - 武器切换冷却的 Spinbox 保存为 `cooldown_input`，供自检核对范围。
   - `--self-check` 新增 `settings_check`：用内存中的 Settings（列出全部 9 个开关）调用 `apply_settings`，断言之后 9 个开关仍全部关闭、按钮仍禁用、未连接游戏、提示文字正确、`persist` 为 False，四个 Spinbox 范围与 `settings.RANGES` 一致。
   - 新增 `test_settings_panel.py`（5 个，用假 Tk 变量）：`apply_settings` 对开关变量 `set` 调用次数为 0；只有开启才记录；`persist=False` 或只读时不写文件；保存失败只提示一次；self-check/preview 关闭持久化。
@@ -189,5 +189,22 @@
 
 ### C5：README「设置保存」、AGENTS.md 项目地图与约束
 - **改了什么**：README 新增「设置保存」一节（保存什么、不保存什么、不会自动写游戏、保存时机、文件位置、如何重置、出错处理）。AGENTS.md 项目地图加入 `exe_hash.py`、`settings.py` 及其测试，`runtime_paths.py` 描述更新，命令行补 `--no-hash-cache`，并新增约束"设置文件不得恢复任何开关状态，只能用于文字提示；--self-check 与 --preview 不读写设置文件"。
-- **第 5–6 步总结**：启动校验命中缓存时不再整文件哈希（只会多算、不会放行，`--no-hash-cache` 可强制完整校验）；四个数值跨次启动保留，九个开关每次仍默认关闭，上次开过的开关只以文字提示。窗口位置不保存。golden trace 逐字节不变，原有 123 个用例未改，新增 34 个（共 157 个）。
+- **设置保存与启动校验缓存总结**：启动校验命中缓存时不再整文件哈希（只会多算、不会放行，`--no-hash-cache` 可强制完整校验）；四个数值跨次启动保留，九个开关每次仍默认关闭，上次开过的开关只以文字提示。窗口位置不保存。golden trace 逐字节不变，原有 123 个用例未改，新增 34 个（共 157 个）。
 - **影响**：纯文档。
+
+
+## 文档命名：步骤号改为功能名
+
+- **改了什么**：`docs/CHANGES.md`、`README.md`、`AGENTS.md` 以及旁路计划/改动说明里，原先以「第N步」为主的标题与叙述，改为功能名（异常处理、Windows CI、重构、设置保存、启动校验缓存等）。步骤号对照只保留在下方一表，不再当主标题。
+- **为什么**：fork 内部步骤号与上游 PR 序号不一致，后续 PR 多了容易对不上。
+- **影响**：仅文档可读性；不改运行时代码、不改已推送 commit message、不 force-push。历史分支名（如 `step4-error-handling`、`step8-ci`）保留作对照。
+- **原计划步骤对照**：
+
+| 原步骤号 | 功能名 | 历史分支（保留） |
+|---|---|---|
+| 第4步 | 异常处理 | `step4-error-handling` |
+| 第8步 | Windows CI | `step8-ci` |
+| 第1–3步 | 重构（偏移集中 / core 拆分 / ResourceLock） | `step1-3-refactor` |
+| 第5步 | 设置保存 | `step5-6-settings-cache` |
+| 第6步 | 启动校验缓存 | 同上 |
+| 第7步 | 反射动态取偏移（暂缓） | — |

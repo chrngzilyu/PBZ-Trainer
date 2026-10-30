@@ -45,7 +45,7 @@ Windows 64 位修改器，支持中文界面与单文件 EXE。连接时校验�
 
 传送校验心跳超过约三秒未更新时转交原游戏行为；适配页保留到游戏退出，避免正在执行的调用访问已释放内存。正常退出会条件恢复对应分派指针。
 
-## 错误提示与恢复（fork 第 4 步新增）
+## 错误提示与恢复（fork 新增）
 
 界面底部除原有消息行外，新增一行**错误状态栏**，颜色取当前最高等级：
 
@@ -65,7 +65,7 @@ Windows 64 位修改器，支持中文界面与单文件 EXE。连接时校验�
 
 EXE 日志保存在 `%LOCALAPPDATA%/PBZTrainer/logs/actions.jsonl`；源码模式使用源码目录的 `logs/`。
 
-## 代码结构（fork 第 1–3 步重构）
+## 代码结构（fork 重构）
 
 **对玩家无可见变化**：功能、界面、日志与报错文案都与重构前一致。代码按层拆分（只允许上层依赖下层，`test_structure.py` 用 AST 检查）：
 
@@ -90,7 +90,7 @@ EXE 日志保存在 `%LOCALAPPDATA%/PBZTrainer/logs/actions.jsonl`；源码模�
 
 `tests_golden/trace.json` 记录了 30 个假内存场景下的每一次读、写、日志和报错。纯重构提交必须让它逐字节不变；`test_offsets.py` 还会检查 core.py/session_effects.py 里不再出现已迁移的十六进制偏移。
 
-## 设置保存（fork 第 5 步新增）
+## 设置保存（fork 新增）
 
 修改器会记住你上次填的四个数值，下次打开时自动填回输入框，不用重新输入。
 
@@ -105,7 +105,7 @@ EXE 日志保存在 `%LOCALAPPDATA%/PBZTrainer/logs/actions.jsonl`；源码模�
 - **出错时**：文件损坏会被改名为 `settings.json.bad-<时间>` 保留，改用默认值，状态栏灰色提示一次；某一项数字越界或不是数字，只有这一项回到默认值；文件来自更新的版本时用默认值，且不会覆盖它；保存失败只在状态栏灰色提示，不影响修改器使用和关闭时的恢复流程。
 - `--self-check` 和 `--preview` 模式不读也不写设置文件。
 
-## 启动校验缓存（fork 第 6 步新增）
+## 启动校验缓存（fork 新增）
 
 连接游戏时，修改器要确认 `pbz.exe` 正是 `profile.json` 里核对过的那个版本（SHA256）。原来每次连接都把几百 MB 的 exe 整个读一遍；现在第一次完整校验通过后，会把结果和文件身份一起记进缓存，之后文件没变就直接命中，基本秒连。
 
@@ -146,7 +146,7 @@ python app.py --self-check --report ui-check.json
 
 自检不连接游戏；`--check-game` 额外进行阻断写入的只读连接检查。许可证可在“使用说明”中查看，原文见 [THIRD_PARTY_NOTICES.txt](assets/THIRD_PARTY_NOTICES.txt)。
 
-## 持续集成（fork 第 8 步新增）
+## 持续集成（fork 新增）
 
 本 fork 在 GitHub Actions 上用 **windows-latest + Python 3.13** 自动跑测试。
 
@@ -158,3 +158,4 @@ python app.py --self-check --report ui-check.json
 - Actions 页可下载 artifact：`ui-check`（自检 JSON，失败也会尽量上传）；手动打包时还有 `pbz-trainer-exe`（EXE + `build-report.json`，含各输入文件 SHA256，保留 14 天）。
 - **CI 绿 ≠ 实机已验收。** 流水线不装 Steam、不连游戏、不跑修改功能实机验收；只验证假内存单测与界面自检（开关默认关闭等）。游戏内行为仍需在 Windows 上人工确认。
 - 权限仅 `contents: read`；不会自动发 Release，也不会向原作者仓库提 PR。
+- fork 改动说明按**功能**分节（见 `docs/CHANGES.md`），不以内部步骤号为主标题。
