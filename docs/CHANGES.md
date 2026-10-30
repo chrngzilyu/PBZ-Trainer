@@ -54,3 +54,19 @@
 - 新增 `test_errors.py`（12 个）：分类映射、消息文本不变、队列有界、8 线程并发、读失败阈值与清零、懒创建队列、状态栏颜色与文本、最近 5 条、session_effects 中“角色未就绪仍显示暂缓”“回滚失败不再降级且不重复上报”“攻击维持写入失败后停用”。
 - 本机（Linux + `/tmp/winshim` 替身）：`test_core` + `test_errors` 共 78 个全部通过；`test_teleport_unlock` 改动前后都是同样 17 个错误（需要真实 Windows API）。
 - **只能在 Windows 上验证**：`app.py` 的状态栏、按钮、弹窗（本机没有 tkinter）；`test_session_persistence.py`；`test_teleport_unlock.py`；实机游戏中的回滚失败场景。
+
+## 第 8 步：GitHub Actions Windows 自动测试（分支 `step8-ci`）
+
+方案依据：`/workspace/plan-step8-ci.md`。本步只加 CI 与补齐构建输入清单，不改任何业务逻辑、偏移或功能。
+
+### 1. 新增 `.github/workflows/ci.yml`
+- **改了什么**：新增 workflow `CI`。触发：`push`（分支 `main`/`master`/`step*` 与标签 `v*`）、`pull_request`、`workflow_dispatch`。权限仅 `contents: read`。两个 job，均在 `windows-latest` + Python 3.13：
+  - **test**（每次必跑）：`python -m unittest discover -s . -p "test_*.py" -v`；`python app.py --self-check --report ui-check.json`；无论成败上传 `ui-check.json` artifact（保留 14 天）。
+  - **build**（可选）：仅在 `workflow_dispatch` 或推送 `v*` 标签时运行；`pip install -r requirements-build.txt` 后执行 `python build_exe.py --output dist`；上传 `dist/*.exe` 与 `.build/onefile/build-report.json`（保留 14 天）。**不**自动创建 Release。
+- **为什么**：本机是 Linux/Mac，完整测试集（含 teleport、session、Tk self-check）只能在 Windows 上跑；后续重构需要这层安全网。打包与测试分离，避免每次小改都打 10MB+ EXE。
+- **影响/兼容**：不改运行时代码。CI 绿只说明单元测试与自检通过，**不等于**实机游戏验收。公开 fork 上 Actions 分钟一般够用；不注入密钥、不连游戏。
+
+### 2. `build_exe.py` 的 `inputs` 列表
+- **改了什么**：在 `inputs` 中补上第 4 步新增的 `errors.py`（插在 `core.py` 与 `ui_theme.py` 之间）。
+- **为什么**：PyInstaller 会因 import 把 `errors.py` 打进包，但构建报告的 `input_sha256` 原先漏记该文件；首次跑 build job 时若漏记也不利于审计。
+- **影响/兼容**：打包产物内容不变（本来就会被 import 进来）；仅报告多一条哈希。本地构建命令不变。

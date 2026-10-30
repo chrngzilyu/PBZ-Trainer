@@ -92,3 +92,16 @@ python app.py --self-check --report ui-check.json
 ```
 
 自检不连接游戏；`--check-game` 额外进行阻断写入的只读连接检查。许可证可在“使用说明”中查看，原文见 [THIRD_PARTY_NOTICES.txt](assets/THIRD_PARTY_NOTICES.txt)。
+
+## 持续集成（fork 第 8 步新增）
+
+本 fork 在 GitHub Actions 上用 **windows-latest + Python 3.13** 自动跑测试。
+
+| 触发 | 跑什么 |
+| --- | --- |
+| push 到 `main` / `master` / `step*`，或打开/更新 PR | **test**：全量 `unittest` + `app.py --self-check` |
+| 手动 `workflow_dispatch`，或推送标签 `v*` | 上述 test，外加 **build**：`build_exe.py` 产出 EXE |
+
+- Actions 页可下载 artifact：`ui-check`（自检 JSON，失败也会尽量上传）；手动打包时还有 `pbz-trainer-exe`（EXE + `build-report.json`，含各输入文件 SHA256，保留 14 天）。
+- **CI 绿 ≠ 实机已验收。** 流水线不装 Steam、不连游戏、不跑修改功能实机验收；只验证假内存单测与界面自检（开关默认关闭等）。游戏内行为仍需在 Windows 上人工确认。
+- 权限仅 `contents: read`；不会自动发 Release，也不会向原作者仓库提 PR。
