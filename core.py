@@ -1,13 +1,13 @@
 """Verified PBZ data fields; optional teleport dispatch adapter is isolated in its own module."""
 from __future__ import annotations
 
-import hashlib
 import json
 import struct
 import threading
 
-from runtime_paths import RESOURCE_HOME
+from runtime_paths import RESOURCE_HOME, hash_cache_path
 from errors import IssueQueue, VersionError
+from exe_hash import verified_sha256
 
 from win32 import (K, ProcessEntry, api, close_handle, discover, exit_code, image_path, open_process,  # noqa: F401  re-exported
                    process_first, process_next, query_path, rpm, snapshot, wpm)
@@ -38,10 +38,7 @@ class Game(ProcessMixin, UEMixin, WriterMixin, TargetsMixin, ModifiersMixin, Res
         self.names = {}
         self.profile = json.loads((HOME / 'profile.json').read_text(encoding='utf8'))
         self.pid, self.path = discover()
-        with self.path.open('rb') as f:
-            digest = hashlib.file_digest(f, 'sha256').hexdigest()
-        if digest != self.profile['sha256']:
-            raise VersionError('游戏版本不匹配，已停止写入；此版本只支持已核对版本')
+        _, self.hash_source = verified_sha256(self.path, self.profile['sha256'], hash_cache_path())
         self.handle = open_process(0x410, False, self.pid)
         if not self.handle:
             raise RuntimeError('无法读取游戏进程')

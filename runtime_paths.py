@@ -6,9 +6,18 @@ import sys
 RESOURCE_HOME = Path(__file__).resolve().parent
 
 
-def log_directory():
+def user_data_home():
+    """Persistent per-user directory: %LOCALAPPDATA%\\PBZTrainer when frozen, the source folder otherwise."""
     if getattr(sys, 'frozen', False):
         local = os.environ.get('LOCALAPPDATA')
         base = Path(local) if local and Path(local).is_absolute() else Path.home() / 'AppData' / 'Local'
-        return base / 'PBZTrainer' / 'logs'
-    return RESOURCE_HOME / 'logs'
+        return base / 'PBZTrainer'
+    return RESOURCE_HOME
+
+
+def log_directory():
+    return user_data_home() / 'logs'
+
+
+def hash_cache_path():
+    return user_data_home() / 'hash-cache.json'

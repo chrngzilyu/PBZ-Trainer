@@ -146,3 +146,16 @@
 ### C8：文档收尾
 - **改了什么**：README 新增「代码结构」「游戏更新后怎么改偏移」「测试与 golden trace」三节；AGENTS.md 项目地图加入新文件与分层规则，以及“重构提交不得改变 golden trace”。
 - **第 1–3 步总结**：偏移集中到 offsets.py，core.py 从约 1100 行拆成分层 mixin（约 95 行），两份 TMap 解析合一，四个资源锁变成配置表。整个过程中 golden trace 一直逐字节不变，原有 110 个测试没有改动（新增 13 个，现共 123 个），**对玩家无可见变化**。偏离方案的地方：没有另加 check/read_current 辅助函数（`*F.args`/`F.current` 已覆盖）；业务上限字面量留在原处；`_sparse_rows` 不加 bulk 参数，改由调用方决定怎么读。
+
+
+## 第 5–6 步：配置持久化 / 启动校验缓存（分支 `step5-6-settings-cache`）
+
+### C1：新增 `exe_hash.py`，启动版本校验改用哈希缓存
+- **改了什么**：
+  - 新增 `exe_hash.py`：`file_identity()`（规范化路径、大小、`mtime_ns`、创建时间、文件 ID `st_ino`、卷 `st_dev`、PE 头 `TimeDateStamp`）、`verified_sha256(path, expected, cache_path, use_cache=True)`，返回 `(sha256, 'cache'|'full')`。缓存原子写（tmp + fsync + `os.replace`），最多保留 4 条。
+  - `core.py`：`Game.__init__` 中原来的整文件 `hashlib.file_digest` 换成 `verified_sha256(...)`，新增属性 `hash_source`；`VersionError` 文案逐字不变，后续 PE 头 / 映像大小 / 名称池校验原样保留。
+  - `runtime_paths.py`：抽出 `user_data_home()`（打包 `%LOCALAPPDATA%\PBZTrainer`，源码模式为仓库目录），`log_directory()` 行为不变，新增 `hash_cache_path()` → `hash-cache.json`。
+  - `build_exe.py` inputs 加 `exe_hash.py`；`.gitignore` 加 `hash-cache.json*`。
+  - 新增 `test_exe_hash.py`（14 个）。
+- **为什么**：每次连接都对几百 MB 的 `pbz.exe` 算一遍 SHA256，启动慢。
+- **影响**：第二次起只需 stat + 读 4KB 头。安全性：只缓存"完整计算且与 profile 一致"的结果；命中时仍要和 profile 期望值比较；任何字段不一致、缓存损坏、schema 不认都视为未命中并完整重算——缓存只会导致多算，不会放行。环境变量 `PBZ_TRAINER_NO_HASH_CACHE=1` 可强制完整校验。golden trace 不经过 `Game.__init__`，逐字节不变；原有 123 个用例未改。
