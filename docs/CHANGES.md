@@ -174,3 +174,15 @@
   - 新增 `test_settings.py`（14 个）：往返、无 window 字段、损坏隔离、新 schema 只读、单项回退、边界、文件里写开关键被忽略、提示只是字符串、原子写、路径规则等。
 - **为什么**：先把可单测的纯逻辑落地，再接 Tk。
 - **影响**：界面还没调用它，用户无可见变化；golden trace 不变。
+
+### C4：界面接入设置保存与"上次开过的开关"提示
+- **改了什么**（`app.py`）：
+  - `Panel(root, autoconnect, persist=False)`：只有正常启动时 `main()` 传 `persist=True`；`--self-check`、`--preview` 下不读也不写设置文件（测试或其他代码直接构造 Panel 时默认也不碰文件）。
+  - 启动时 `apply_settings()` 只把四个数值填回输入框，并在提示行下方新增一行文字"上次开过：…（仅提示，本次均未开启…）"。**这个函数不碰任何开关变量**。
+  - 九个开关变量加 `trace_add`：变成开启时把名字记进 `used_switches`，只用来下次生成提示文字。
+  - 保存时机：点"应用"且写入成功后；正常关闭时（`close()` 最前面，失败不阻挡后续恢复流程）。设置文件损坏、来自新版本、保存失败 → 状态栏灰色提示（第 4 步的日志级别），不弹窗。
+  - 武器切换冷却的 Spinbox 保存为 `cooldown_input`，供自检核对范围。
+  - `--self-check` 新增 `settings_check`：用内存中的 Settings（列出全部 9 个开关）调用 `apply_settings`，断言之后 9 个开关仍全部关闭、按钮仍禁用、未连接游戏、提示文字正确、`persist` 为 False，四个 Spinbox 范围与 `settings.RANGES` 一致。
+  - 新增 `test_settings_panel.py`（5 个，用假 Tk 变量）：`apply_settings` 对开关变量 `set` 调用次数为 0；只有开启才记录；`persist=False` 或只读时不写文件；保存失败只提示一次；self-check/preview 关闭持久化。
+- **为什么**：让四个倍率数值跨次启动保留，同时坚持"开关默认关闭"。
+- **影响**：恢复的只是输入框数字，仍需点"应用"才写游戏内存；开关每次启动都是关闭。不经过 `Game` 的读写路径，golden trace 不变。

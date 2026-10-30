@@ -11,7 +11,9 @@ from core import Game
 from exe_hash import NO_CACHE_ENV
 from errors import READ, ROLLBACK, TARGET_GONE, IssueQueue, classify, recent_lines, summarize_issues
 from session_effects import SessionEffects
-from runtime_paths import RESOURCE_HOME, log_directory
+from runtime_paths import RESOURCE_HOME, log_directory, settings_path
+import settings as user_settings
+from errors import LOG
 from ui_theme import configure, Tooltip, BG, CARD
 
 ISSUE_COLORS = {'': '#9aa0ab', 'gray': '#9aa0ab', 'yellow': '#e0b84f', 'red': '#e0565b'}
@@ -103,8 +105,13 @@ class DustDialog:
 
 
 class Panel:
-    def __init__(self, root, autoconnect=True):
+    def __init__(self, root, autoconnect=True, persist=False):
         self.root, self.game = root, None
+        # Step 5: only main() in normal mode passes persist=True; --self-check / --preview never touch the file.
+        self.persist = persist
+        self.settings_read_only = False
+        self.settings_save_warned = False
+        self.used_switches = set()
         self.controls = []
         root.title('影之刃零 · 修改器 0.13.1')
         root.geometry(f'1040x{min(880, root.winfo_screenheight() - 90)}')
@@ -206,7 +213,7 @@ class Panel:
         button.pack(anchor='e', pady=(0, 8))
         self.controls.append(button)
         self.cooldown = tk.StringVar(value='0.1')
-        self.number_row(movement, '武器切换冷却', '0.1–2 秒 · 换装备后需重新应用', self.cooldown, 0.1, 2, '应用切换冷却', lambda: self.modify('cooldown', self.cooldown.get()))
+        self.cooldown_input = self.number_row(movement, '武器切换冷却', '0.1–2 秒 · 换装备后需重新应用', self.cooldown, 0.1, 2, '应用切换冷却', lambda: self.modify('cooldown', self.cooldown.get()))
         self.switch(movement, '随地传送解锁', '游戏会提示消耗穿行符，但实际不消耗。仅限已激活目的地，保留原有战斗／剧情等限制', self.teleport_unlocked, self.toggle_teleport)
         ttk.Label(movement, text='会提示消耗穿行符，但实际不消耗。', style='Muted.Card.TLabel', wraplength=400).pack(anchor='w', pady=(5, 0))
         self.teleport_status = tk.StringVar(value='传送：关闭')
@@ -247,6 +254,8 @@ class Panel:
         self.controls.append(button)
         self.message = tk.StringVar(value='就绪。连接游戏后，按需启用功能。')
         ttk.Label(outer, textvariable=self.message, style='Hint.TLabel', wraplength=960).pack(anchor='w', pady=(9, 0))
+        self.last_switch_hint = tk.StringVar(value='')
+        ttk.Label(outer, textvariable=self.last_switch_hint, style='Hint.TLabel', wraplength=960).pack(anchor='w')
         # Step 4: graded error status bar. Red is sticky until "已知晓"; normal messages never overwrite it.
         self.issues = IssueQueue()
         self.issue_log = []
@@ -263,11 +272,38 @@ class Panel:
         self.residual_button.pack(side='right', padx=(0, 6))
         self.controls.append(self.residual_button)
         self.enabled(False)
+        for name in user_settings.SWITCH_LABELS:
+            getattr(self, name).trace_add('write', lambda *_, n=name: self.note_switch(n))
+        if self.persist:
+            loaded = user_settings.load(settings_path())
+            self.settings_read_only = loaded.read_only
+            if loaded.notice:
+                self.issues.report(LOG, '设置', loaded.notice)
+            self.apply_settings(loaded)
         if autoconnect:
             root.after(100, self.connect)
         root.after(1000, self.tick)
         root.after(200, self.resource_tick)
         root.after(50, self.health_tick)
+
+    def note_switch(self, name):
+        # Records which switches were turned on this session, for next start's text hint only.
+        if getattr(self, name).get():
+            self.used_switches.add(name)
+
+    def apply_settings(self, loaded):
+        """Fill the four number inputs and the hint line. Never touches any switch variable."""
+        for key in user_settings.DEFAULTS:
+            getattr(self, key).set(loaded.values[key])
+        self.last_switch_hint.set(user_settings.hint_text(loaded.last_switches))
+
+    def save_settings(self):
+        if not self.persist or self.settings_read_only:
+            return
+        values = {key: getattr(self, key).get() for key in user_settings.DEFAULTS}
+        if not user_settings.save(settings_path(), values, sorted(self.used_switches), '0.13.1') and not self.settings_save_warned:
+            self.settings_save_warned = True
+            self.issues.report(LOG, '设置', '设置保存失败：' + str(settings_path()))
 
     def fail(self, exc):
         """Show the error as before and grade it into the status bar (step 4)."""
@@ -459,6 +495,7 @@ class Panel:
             self.game.modifier(feature, float(text))
             if feature == 'attack':
                 self.effect_session().capture_attack()
+            self.save_settings()
             self.refresh()
             self.message.set({'cooldown': '已缩短角色切换间隔与当前武器自身冷却；换装备后需重新应用，可随时恢复。',
                               'movement': '已应用行走、跑步、冲刺和蹲行倍率；可用“恢复移速”单独撤销。',
@@ -665,6 +702,10 @@ class Panel:
         self.root.after(1000, self.tick)
 
     def close(self):
+        try:
+            self.save_settings()
+        except Exception:
+            pass  # settings must never block restoring the game; save_settings already reports IO failures
         if self.game:
             try:
                 self.game.stop_teleport_unlock()
@@ -698,7 +739,7 @@ def main():
     root = tk.Tk()
     if args.self_check:
         root.withdraw()
-    panel = Panel(root, autoconnect=not (args.self_check or args.preview))
+    panel = Panel(root, autoconnect=not (args.self_check or args.preview), persist=not (args.self_check or args.preview))
     if args.preview:
         root.title('影之刃零 · 0.13.1 界面预览')
         panel.connect_button.state(['disabled'])
@@ -747,6 +788,19 @@ def main():
                 assert not check.undo
             finally:
                 check.close()
+        switch_vars = [getattr(panel, name) for name in user_settings.SWITCH_LABELS]
+        switches_before = [v.get() for v in switch_vars]
+        # In-memory only (no file IO): a settings object listing every switch must only produce hint text.
+        panel.apply_settings(user_settings.Settings(values={'attack': '3', 'incoming': '0.5', 'movement': '2', 'cooldown': '0.2'},
+                                                    last_switches=list(user_settings.SWITCH_LABELS)))
+        root.update()
+        settings_check = {'persist': panel.persist, 'switches_before': switches_before,
+                          'switches_after_hint': [v.get() for v in switch_vars],
+                          'controls_disabled_after_hint': all(b.instate(['disabled']) for b in panel.controls),
+                          'hint': panel.last_switch_hint.get(), 'attack_restored': panel.attack.get(),
+                          'cooldown_range': [float(panel.cooldown_input.cget('from')), float(panel.cooldown_input.cget('to'))],
+                          'game_connected': panel.game is not None}
+        panel.apply_settings(user_settings.Settings())
         result = {'created': True, 'frozen': bool(getattr(sys, 'frozen', False)),
                   'profile_version': profile['version'], 'runtime_licenses_embedded': True, 'steam_build': profile['steam_build'],
                   'persistent_log_directory': str(log_directory()), 'read_only_game_check': game_check, 'write_buttons': len(panel.controls), 'all_disabled': all(b.instate(['disabled']) for b in panel.controls),
@@ -771,12 +825,19 @@ def main():
                   'tabs': [panel.tabs.tab(tab, 'text') for tab in panel.tabs.tabs()],
                   'switch_count': sum(isinstance(c, ttk.Checkbutton) for c in panel.controls),
                   'help_readonly': str(panel.help_text.cget('state')) == 'disabled',
-                  'preview_connect_disabled': panel.connect_button.instate(['disabled']) if args.preview else None}
+                  'preview_connect_disabled': panel.connect_button.instate(['disabled']) if args.preview else None,
+                  'settings_check': settings_check}
         if args.report:
             Path(args.report).write_text(json.dumps(result, indent=2), encoding='utf8')
         if sys.stdout is not None:
             print(json.dumps(result))
         panel.close()
+        sc = result['settings_check']
+        assert sc['persist'] is False and not any(sc['switches_before']) and not any(sc['switches_after_hint'])
+        assert sc['controls_disabled_after_hint'] and not sc['game_connected'] and sc['attack_restored'] == '3'
+        assert sc['hint'].startswith('上次开过：强锁血') and '未开启' in sc['hint']
+        assert {'attack': result['attack_range'], 'incoming': result['incoming_range'], 'movement': result['movement_range'],
+                'cooldown': sc['cooldown_range']} == {k: list(v) for k, v in user_settings.RANGES.items()}
         assert result['tabs'] == ['功能面板', '使用说明'] and result['switch_count'] == 9 and result['help_readonly']
         if args.preview:
             assert result['preview_connect_disabled']
