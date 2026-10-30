@@ -13,6 +13,7 @@ import struct
 
 from core import api, open_process, close_handle, image_path, wpm, DataWriteError
 from errors import WRITE, report_issue
+from offsets import HEALTH
 
 MAGIC = b'PBZTRV13'
 ALLOCATION_SIZE = 8192
@@ -169,7 +170,7 @@ def snapshot(game, key):
         amount, maximum = struct.unpack('<ii', game.read(info['address'] + 0x380, 8))
         if not 0 <= amount <= maximum <= 999 or not maximum:
             raise RuntimeError('穿行符数量或上限无效')
-    health = struct.unpack('<f', game.read(context['attributes'] + 0x64, 4))[0]
+    health = struct.unpack('<f', game.read(context['attributes'] + HEALTH.current, 4))[0]
     if not math.isfinite(health) or health <= 0:
         raise RuntimeError('当前角色尚未存活就绪')
     fresh = game.context()

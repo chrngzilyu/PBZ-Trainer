@@ -94,3 +94,13 @@
 - **改了什么**：新增 `offsets.py`。`Field(owner, name, offset, kind, size)` 记录一个反射字段，`.args` 直接给 `property(cls, *field.args)` 用；`AttrField` 专门表示 FGameplayAttributeData，`.base`（offset+8，写 Base+Current 的 `'<ff'` 起点）和 `.current`（offset+12，读 Current）把原代码里隐式的 +8/+12 约定变成有名字的属性。表内有 BasicAttributeSet 的 18 个字段、Pawn/武器/背包/药品字段、固定指针链（0x228/0x38/0x30/0x2f0/0x358/0x758/0x9e0）、业务上限 `LIMITS`，以及 `MOVEMENT`/`INCOMING`/`RESOURCE_FIELD`/`RESOURCE_MAX`/`STATUS_*` 查找表。未经反射核对的武器 config 指针 0xe8 单独记为 `UNVERIFIED_WEAPON_CONFIG_PTR`，本次不加核对。新增 `test_offsets.py`（4 个）：`0x58+12==0x64`、`0x908+12==0x914`、精纯杀气 `+16/+28` 推算等恒等式；属性字段不重名、不重叠；其它类字段按所属类不重叠；查找表内容。
 - **为什么**：同一偏移最多重复 9 处，还有 0x64/0x74/0x914/+16/+28 这类推算地址，游戏更新时最容易漏改。
 - **影响**：本提交还没有任何代码引用它，运行时行为不变；golden trace 一致。用例 112 → 116。
+
+### C2：core / session_effects / teleport 改为按字段名引用偏移
+- **改了什么**：
+  - `core.py`：`context` 的指针链、`weapon_cooldown_configs`、`backpack`、`medicine`、`medicine_state`、`targets`、`refill`、`refill_ultimate`、四种资源锁 pulse、生命下限锁、`modifier('health_floor')`、`movement_modifier`、`status` 中的偏移字面值全部改成 `offsets.py` 的字段：`property(cls, *F.args)`、写入用 `F.base`、读 Current 用 `F.current`。推算地址也改成有名字的写法：`0x64/0x74 → HEALTH.current/HEALTH_MAX.current`、`owner+0x914 → SPIRIT_SHADOW_MAX.current`、精纯杀气 `offset+16/+28 → *_MAX.args / *_MAX.current`、暗源 `address+4 →（SPIRIT_SHADOW.current − .base）`。CDO 标志 0x10 → `RF_CLASS_DEFAULT_OBJECT`。
+  - `session_effects.py`：`_attributes` 里的 0x64/0x74 → `HEALTH.current/HEALTH_MAX.current`。
+  - `teleport_unlock.py`：**只改第 172 行**这一处 `+0x64 → HEALTH.current`，并新增 `from offsets import HEALTH`；其余逻辑和私有布局（RVA、机器码、背包库存偏移）不动，默认关闭、版本校验、token 校验、写前日志、条件恢复都原样保留。
+  - `test_offsets.py` 新增守卫测试：core.py 和 session_effects.py 里不得再出现已迁移的十六进制偏移。
+- **未迁移（有意保留）**：Win32 访问掩码 0x1000/0x410/0x438、PE 头 0x8664、地址范围、FName 的 `0xffffffff` 掩码、UObject/FProperty 结构内部布局、业务范围上限（1000000/100/50/2000000000，已登记在 `LIMITS` 但本次不替换，避免改动面过大）。
+- **为什么**：游戏更新时只需改 `offsets.py` 一处。
+- **影响**：生成的地址、读取尺寸、`property()` 参数和调用顺序完全不变；golden trace 逐字节一致。用例 116 → 117。

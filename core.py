@@ -13,6 +13,7 @@ import threading
 import time
 
 from runtime_paths import RESOURCE_HOME, log_directory
+import offsets as O
 from errors import (LOG, ROLLBACK, IssueQueue, ReadError, RollbackError, VersionError, WriteError,
                     report_issue)
 
@@ -220,19 +221,19 @@ class Game:
         world = self.qword(self.base + self.profile['world_rva'])
         if self.class_name(world) != 'World':
             raise RuntimeError('当前世界尚未就绪')
-        gi = self.qword(world + 0x228)
-        locals_array, count, capacity = struct.unpack('<Qii', self.read(gi + 0x38, 16))
+        gi = self.qword(world + O.WORLD_GAME_INSTANCE)
+        locals_array, count, capacity = struct.unpack('<Qii', self.read(gi + O.GI_LOCAL_PLAYERS, 16))
         if not 0 < count <= capacity <= 16:
             raise RuntimeError('本地玩家尚未就绪')
         local = self.qword(locals_array)
-        controller = self.qword(local + 0x30)
-        pawn = self.qword(controller + 0x2f0)
-        if not pawn or pawn != self.qword(controller + 0x358):
+        controller = self.qword(local + O.PLAYER_CONTROLLER)
+        pawn = self.qword(controller + O.CONTROLLER_PAWN)
+        if not pawn or pawn != self.qword(controller + O.CONTROLLER_PAWN_CHECK):
             raise RuntimeError('玩家对象正在切换')
         player = self.obj(pawn)
-        if player['flags'] & 0x10:
+        if player['flags'] & O.RF_CLASS_DEFAULT_OBJECT:
             raise RuntimeError('不能修改默认对象')
-        attributes = self.qword(pawn + 0x758)
+        attributes = self.qword(pawn + O.PAWN_ATTRIBUTE_SET)
         attr = self.obj(attributes)
         if attr['outer'] != pawn or self.class_name(attributes) != 'BasicAttributeSet':
             raise RuntimeError('玩家属性归属校验失败')
@@ -262,12 +263,12 @@ class Game:
         """Resolve equipped main/sub weapon assets, excluding medicines and interactions."""
         context = context or self.context()
         pawn = context['pawn']
-        self.property(self.obj(pawn)['class'], 'Character Weapons Component', 0xec0, 0x10000, 8)
-        weapons = self.qword(pawn + 0xec0)
+        self.property(self.obj(pawn)['class'], *O.PAWN_WEAPONS.args)
+        weapons = self.qword(pawn + O.PAWN_WEAPONS.offset)
         if self.obj(weapons)['outer'] != pawn or self.class_name(weapons) != 'CharacterWeaponsComponent':
             raise RuntimeError('武器组件归属不匹配')
-        self.property(self.obj(weapons)['class'], 'RuntimeWeaponData', 0xf8, 0x400000000000, 80)
-        raw = self.read(weapons + 0xf8, 80)
+        self.property(self.obj(weapons)['class'], *O.WEAPONS_RUNTIME_DATA.args)
+        raw = self.read(weapons + O.WEAPONS_RUNTIME_DATA.offset, 80)
         array, count, capacity = struct.unpack_from('<Qii', raw)
         bits, max_bits = struct.unpack_from('<ii', raw, 40)
         if not 0 < count <= capacity <= 32 or bits != count or not bits <= max_bits <= 128:
@@ -292,9 +293,9 @@ class Game:
                 if not config or config in seen:
                     continue
                 expected = 'PBZ_MainWeaponConfig_C' if slot.endswith('.Main') else 'PBZ_SubWeaponConfig_C'
-                if self.class_name(config) != expected or self.obj(config)['flags'] & 0x10:
+                if self.class_name(config) != expected or self.obj(config)['flags'] & O.RF_CLASS_DEFAULT_OBJECT:
                     raise RuntimeError('武器配置类型不匹配')
-                self.property(self.obj(config)['class'], 'Change Weapon Cooldown', 0xe0, 0x100000000, 8)
+                self.property(self.obj(config)['class'], *O.CHANGE_WEAPON_COOLDOWN.args)
                 feature = f"weapon_cooldown:{slot.rsplit('.', 1)[1]}:{index}"
                 found[feature] = config
                 seen.add(config)
@@ -307,7 +308,7 @@ class Game:
 
     def backpack(self, context):
         matches = []
-        for _, pointer in self.map_rows(context['world'] + 0x9e0):
+        for _, pointer in self.map_rows(context['world'] + O.WORLD_SUBSYSTEMS):
             try:
                 obj = self.obj(pointer)
                 if obj['outer'] == context['world'] and self.class_name(pointer) == 'PBZBackPackSubsystem':
@@ -322,13 +323,13 @@ class Game:
         if kind not in ('Hulu', 'FeiJiu'):
             raise ValueError('仅支持已核对的葫芦和酒')
         backpack = self.backpack(context)
-        self.property(self.obj(backpack)['class'], 'MedicineInfos', 0x620, 0x400000000000, 80)
+        self.property(self.obj(backpack)['class'], *O.BACKPACK_MEDICINES.args)
         matches = []
-        for key, pointer in self.map_rows(backpack + 0x620):
+        for key, pointer in self.map_rows(backpack + O.BACKPACK_MEDICINES.offset):
             if self.name(key & 0xffffffff) != kind or key >> 32:
                 continue
             obj = self.obj(pointer)
-            if obj['outer'] == backpack and not obj['flags'] & 0x10 and self.class_name(pointer) == 'PBZMedicineInfo':
+            if obj['outer'] == backpack and not obj['flags'] & O.RF_CLASS_DEFAULT_OBJECT and self.class_name(pointer) == 'PBZMedicineInfo':
                 matches.append(pointer)
         if len(matches) != 1:
             raise RuntimeError('未找到当前药品：' + ('葫芦' if kind == 'Hulu' else '酒'))
@@ -337,11 +338,11 @@ class Game:
     def medicine_state(self, kind, context=None):
         context = context or self.context()
         backpack, medicine = self.medicine(context, kind)
-        for name, offset in [('CurrentTime', 0x50), ('DisplayTime', 0x54), ('MaxTime', 0x58)]:
-            self.property(self.obj(medicine)['class'], name, offset, 0x80, 4)
-        self.property(self.obj(backpack)['class'], 'MedicineExtraUsage', 0x670, 0x80, 4)
-        current, display, maximum = struct.unpack('<iii', self.read(medicine + 0x50, 12))
-        extra = struct.unpack('<i', self.read(backpack + 0x670, 4))[0]
+        for field in O.MEDICINE_FIELDS:
+            self.property(self.obj(medicine)['class'], *field.args)
+        self.property(self.obj(backpack)['class'], *O.BACKPACK_MEDICINE_EXTRA.args)
+        current, display, maximum = struct.unpack('<iii', self.read(medicine + O.MEDICINE_CURRENT.offset, 12))
+        extra = struct.unpack('<i', self.read(backpack + O.BACKPACK_MEDICINE_EXTRA.offset, 4))[0]
         if not 0 < maximum <= 50 or not 0 <= extra <= 50 or not 0 <= current <= maximum + extra or not 0 <= display <= maximum + extra:
             raise RuntimeError('药品次数或上限无效，已停止补充')
         return medicine, current, display, maximum + extra
@@ -350,56 +351,50 @@ class Game:
         context = self.context()
         if feature == 'dust':
             pawn = context['pawn']
-            self.property(self.obj(pawn)['class'], 'ConsciousnessDust', 0x1040, 0x80, 4)
-            return [(pawn, pawn + 0x1040, '<i')]
+            self.property(self.obj(pawn)['class'], *O.PAWN_DUST.args)
+            return [(pawn, pawn + O.PAWN_DUST.offset, '<i')]
         if feature.startswith('weapon_cooldown:'):
             config = self.weapon_cooldown_configs(context).get(feature)
             if config is None:
                 raise RuntimeError('当前武器已变化，停止写入旧武器配置')
-            return [(config, config + 0xe0, '<d')]
+            return [(config, config + O.CHANGE_WEAPON_COOLDOWN.offset, '<d')]
         attributes = context['attributes']
         cls = self.obj(attributes)['class']
         if feature.startswith('movement:'):
             name = feature.split(':', 1)[1]
-            offsets = {'WalkSpeed': 0xd88, 'JogSpeed': 0xd98, 'SprintSpeed': 0xda8, 'CrouchSpeed': 0xdb8}
-            if name not in offsets:
+            if name not in O.MOVEMENT:
                 raise ValueError('未知的移动速度项目')
-            offset = offsets[name]
-            self.property(cls, name, offset, 0x100000, 16)
-            return [(attributes, attributes + offset + 8, '<ff')]
+            field = O.MOVEMENT[name]
+            self.property(cls, *field.args)
+            return [(attributes, attributes + field.base, '<ff')]
         if feature.startswith('incoming:'):
-            known = {'incoming:physical': ('TakenVulnerabilityMultiplier_Physical', 0x138),
-                     'incoming:elemental': ('TakenVulnerabilityMultiplier_Elemental', 0x2c8)}
-            if feature not in known:
+            if feature not in O.INCOMING:
                 raise ValueError('未知的承伤类型')
-            field, offset = known[feature]
-            self.property(cls, field, offset, 0x100000, 16)
-            return [(attributes, attributes + offset + 8, '<ff')]
+            field = O.INCOMING[feature]
+            self.property(cls, *field.args)
+            return [(attributes, attributes + field.base, '<ff')]
         if feature in ('health', 'health_floor', 'shachi', 'attack', 'ultimate_charge', 'ultimate_count', 'spirit_shadow'):
-            field, offset = {'health': ('Health', 0x58), 'shachi': ('Shachi', 0x638), 'attack': ('Attack', 0xc8),
-                             'health_floor': ('Health_Min', 0xd78),
-                             'spirit_shadow': ('SpiritShadow', 0x8f8),
-                             'ultimate_charge': ('UltimateCharge', 0x898), 'ultimate_count': ('UltimateChargeCount', 0x8b8)}[feature]
-            self.property(cls, field, offset, 0x100000, 16)
-            return [(attributes, attributes + offset + 8, '<ff')]
+            field = O.RESOURCE_FIELD[feature]
+            self.property(cls, *field.args)
+            return [(attributes, attributes + field.base, '<ff')]
         if feature == 'medicine' or feature.startswith('medicine:'):
             kind = 'Hulu' if feature == 'medicine' else feature.split(':', 1)[1]
             backpack, medicine = self.medicine(context, kind)
             cls = self.obj(medicine)['class']
-            self.property(cls, 'CurrentTime', 0x50, 0x80, 4)
-            self.property(cls, 'DisplayTime', 0x54, 0x80, 4)
-            return [(medicine, medicine + 0x50, '<ii')]
+            self.property(cls, *O.MEDICINE_CURRENT.args)
+            self.property(cls, *O.MEDICINE_DISPLAY.args)
+            return [(medicine, medicine + O.MEDICINE_CURRENT.offset, '<ii')]
         if feature == 'cooldown':
             pawn = context['pawn']
-            self.property(self.obj(pawn)['class'], 'Character Weapons Component', 0xec0, 0x10000, 8)
-            weapons = self.qword(pawn + 0xec0)
+            self.property(self.obj(pawn)['class'], *O.PAWN_WEAPONS.args)
+            weapons = self.qword(pawn + O.PAWN_WEAPONS.offset)
             if self.obj(weapons)['outer'] != pawn or self.class_name(weapons) != 'CharacterWeaponsComponent':
                 raise RuntimeError('武器组件归属不匹配')
-            config = self.qword(weapons + 0xe8)
+            config = self.qword(weapons + O.UNVERIFIED_WEAPON_CONFIG_PTR)
             cls = self.obj(config)['class']
-            self.property(cls, 'Switch Main Weapon Cooldown', 0x9e8, 0x100000000, 8)
-            self.property(cls, 'Switch Shachi Weapon Cooldown', 0x9f0, 0x100000000, 8)
-            return [(config, config + 0x9e8, '<dd')]
+            self.property(cls, *O.SWITCH_MAIN_COOLDOWN.args)
+            self.property(cls, *O.SWITCH_SHACHI_COOLDOWN.args)
+            return [(config, config + O.SWITCH_MAIN_COOLDOWN.offset, '<dd')]
         raise ValueError('不支持的功能')
 
     def dust_state(self):
@@ -566,10 +561,9 @@ class Game:
             context = self.context()
             attr = context['attributes']
             if feature in ('health', 'shachi', 'spirit_shadow'):
-                name, offset = {'health': ('Health_Max', 0x68), 'shachi': ('Shachi_Max', 0x658),
-                                'spirit_shadow': ('SpiritShadow_Max', 0x908)}[feature]
-                self.property(self.obj(attr)['class'], name, offset, 0x100000, 16)
-                maximum = struct.unpack('<f', self.read(attr + offset + 12, 4))[0]
+                field = O.RESOURCE_MAX[feature]
+                self.property(self.obj(attr)['class'], *field.args)
+                maximum = struct.unpack('<f', self.read(attr + field.current, 4))[0]
                 if not 0 < maximum <= 1000000:
                     raise RuntimeError('资源上限无效')
                 return self.patch(feature, (maximum, maximum), expected_token=expected_token)
@@ -586,10 +580,10 @@ class Game:
             context = self.context()
             attr = context['attributes']
             cls = self.obj(attr)['class']
-            self.property(cls, 'UltimateCharge_Max', 0x8a8, 0x100000, 16)
-            self.property(cls, 'UltimateChargeCount_Max', 0x8c8, 0x100000, 16)
-            charge = struct.unpack('<f', self.read(attr + 0x8a8 + 12, 4))[0]
-            count = struct.unpack('<f', self.read(attr + 0x8c8 + 12, 4))[0]
+            self.property(cls, *O.ULTIMATE_CHARGE_MAX.args)
+            self.property(cls, *O.ULTIMATE_COUNT_MAX.args)
+            charge = struct.unpack('<f', self.read(attr + O.ULTIMATE_CHARGE_MAX.current, 4))[0]
+            count = struct.unpack('<f', self.read(attr + O.ULTIMATE_COUNT_MAX.current, 4))[0]
             if not 0 < charge <= 1000000 or not 0 < count <= 100:
                 raise RuntimeError('精纯杀气上限无效')
             identity = self.token(attr)
@@ -680,11 +674,12 @@ class Game:
                     raise RuntimeError('玩家已切换，精纯杀气锁定已停止')
                 cls = self.obj(attr)['class']
                 values = []
-                for name, offset, cap in [('UltimateCharge', 0x898, 1000000), ('UltimateChargeCount', 0x8b8, 100)]:
-                    self.property(cls, name, offset, 0x100000, 16)
-                    self.property(cls, name + '_Max', offset + 16, 0x100000, 16)
-                    current = struct.unpack('<f', self.read(attr + offset + 12, 4))[0]
-                    maximum = struct.unpack('<f', self.read(attr + offset + 28, 4))[0]
+                for field, field_max, cap in [(O.ULTIMATE_CHARGE, O.ULTIMATE_CHARGE_MAX, 1000000),
+                                              (O.ULTIMATE_COUNT, O.ULTIMATE_COUNT_MAX, 100)]:
+                    self.property(cls, *field.args)
+                    self.property(cls, *field_max.args)
+                    current = struct.unpack('<f', self.read(attr + field.current, 4))[0]
+                    maximum = struct.unpack('<f', self.read(attr + field_max.current, 4))[0]
                     if not math.isfinite(current) or not 0 <= current <= maximum <= cap or maximum <= 0:
                         raise RuntimeError('精纯杀气状态无效，锁定已停止')
                     values.append((current, maximum))
@@ -701,9 +696,9 @@ class Game:
             self.stop_auto_health()
             attr = self.context()['attributes']
             identity = self.token(attr)
-            self.property(self.obj(attr)['class'], 'Health_Max', 0x68, 0x100000, 16)
-            current = struct.unpack('<f', self.read(attr + 0x64, 4))[0]
-            maximum = struct.unpack('<f', self.read(attr + 0x74, 4))[0]
+            self.property(self.obj(attr)['class'], *O.HEALTH_MAX.args)
+            current = struct.unpack('<f', self.read(attr + O.HEALTH.current, 4))[0]
+            maximum = struct.unpack('<f', self.read(attr + O.HEALTH_MAX.current, 4))[0]
             if not math.isfinite(current) or not 0 < current <= maximum <= 1000000:
                 raise RuntimeError('当前生命状态无效或已死亡，未开启生命下限锁定')
             record = self.modifier('health_floor', maximum)
@@ -733,8 +728,8 @@ class Game:
                 attr = self.context()['attributes']
                 if self.token(attr) != tuple(record['token']):
                     raise RuntimeError('玩家已切换，生命下限锁定已停止')
-                current = struct.unpack('<f', self.read(attr + 0x64, 4))[0]
-                maximum = struct.unpack('<f', self.read(attr + 0x74, 4))[0]
+                current = struct.unpack('<f', self.read(attr + O.HEALTH.current, 4))[0]
+                maximum = struct.unpack('<f', self.read(attr + O.HEALTH_MAX.current, 4))[0]
                 if not math.isfinite(current) or not 0 < current <= maximum <= 1000000:
                     raise RuntimeError('生命状态无效或已死亡，生命下限保护已停止')
                 observed = self.read(record['address'], 8)
@@ -776,9 +771,9 @@ class Game:
             context = self.context()
             attr = context['attributes']
             self.targets('health')
-            self.property(self.obj(attr)['class'], 'Health_Max', 0x68, 0x100000, 16)
-            current = struct.unpack('<f', self.read(attr + 0x58 + 12, 4))[0]
-            maximum = struct.unpack('<f', self.read(attr + 0x68 + 12, 4))[0]
+            self.property(self.obj(attr)['class'], *O.HEALTH_MAX.args)
+            current = struct.unpack('<f', self.read(attr + O.HEALTH.current, 4))[0]
+            maximum = struct.unpack('<f', self.read(attr + O.HEALTH_MAX.current, 4))[0]
             if not math.isfinite(current) or not 0 < current <= maximum <= 1000000:
                 raise RuntimeError('当前生命状态无效或已死亡，未开启自动回血')
             token = self.token(attr)
@@ -803,8 +798,8 @@ class Game:
                 attr = self.context()['attributes']
                 if self.token(attr) != self.auto_health:
                     raise RuntimeError('玩家已切换，自动回血已停止')
-                current = struct.unpack('<f', self.read(attr + 0x58 + 12, 4))[0]
-                maximum = struct.unpack('<f', self.read(attr + 0x68 + 12, 4))[0]
+                current = struct.unpack('<f', self.read(attr + O.HEALTH.current, 4))[0]
+                maximum = struct.unpack('<f', self.read(attr + O.HEALTH_MAX.current, 4))[0]
                 if not math.isfinite(current) or not 0 < current <= maximum <= 1000000:
                     raise RuntimeError('生命状态异常或已死亡，自动回血已停止')
                 if current < maximum - 0.001:
@@ -842,8 +837,8 @@ class Game:
                 attr = context['attributes']
                 if self.token(attr) != self.auto_shachi:
                     raise RuntimeError('玩家已切换，杀气自动补充已停止')
-                current = struct.unpack('<f', self.read(attr + 0x638 + 12, 4))[0]
-                maximum = struct.unpack('<f', self.read(attr + 0x658 + 12, 4))[0]
+                current = struct.unpack('<f', self.read(attr + O.SHACHI.current, 4))[0]
+                maximum = struct.unpack('<f', self.read(attr + O.SHACHI_MAX.current, 4))[0]
                 if not math.isfinite(current) or not 0 <= current <= maximum <= 1000000 or maximum <= 0:
                     raise RuntimeError('杀气状态异常，自动补充已停止')
                 if current < maximum - 0.001:
@@ -879,9 +874,10 @@ class Game:
                 owner, address, _ = self.targets('spirit_shadow')[0]
                 if self.token(owner) != self.auto_spirit_shadow:
                     raise RuntimeError('玩家已切换，锁暗源已停止')
-                self.property(self.obj(owner)['class'], 'SpiritShadow_Max', 0x908, 0x100000, 16)
-                current = struct.unpack('<f', self.read(address + 4, 4))[0]
-                maximum = struct.unpack('<f', self.read(owner + 0x914, 4))[0]
+                self.property(self.obj(owner)['class'], *O.SPIRIT_SHADOW_MAX.args)
+                # address is SpiritShadow.base (+8); +4 lands on its CurrentValue
+                current = struct.unpack('<f', self.read(address + (O.SPIRIT_SHADOW.current - O.SPIRIT_SHADOW.base), 4))[0]
+                maximum = struct.unpack('<f', self.read(owner + O.SPIRIT_SHADOW_MAX.current, 4))[0]
                 if not math.isfinite(current) or not 0 <= current <= maximum <= 1000000 or maximum <= 0:
                     raise RuntimeError('暗源状态异常，锁暗源已停止')
                 if current < maximum - 0.001:
@@ -909,8 +905,8 @@ class Game:
             floor_identity = None
             if feature == 'health_floor':
                 attr = self.context()['attributes']
-                self.property(self.obj(attr)['class'], 'Health_Max', 0x68, 0x100000, 16)
-                maximum = struct.unpack('<f', self.read(attr + 0x68 + 12, 4))[0]
+                self.property(self.obj(attr)['class'], *O.HEALTH_MAX.args)
+                maximum = struct.unpack('<f', self.read(attr + O.HEALTH_MAX.current, 4))[0]
                 if not math.isfinite(amount) or not 0 < amount <= maximum <= 1000000:
                     raise ValueError('生命下限必须大于0且不超过当前最大生命')
                 floor_identity = self.token(attr)
@@ -1003,7 +999,7 @@ class Game:
                 return []
             identity = self.token(self.context()['attributes'])
             plan = []
-            for name in ('WalkSpeed', 'JogSpeed', 'SprintSpeed', 'CrouchSpeed'):
+            for name in O.MOVEMENT:
                 feature = 'movement:' + name
                 owner, address, fmt = self.targets(feature)[0]
                 if self.token(owner) != identity:
@@ -1101,23 +1097,22 @@ class Game:
             context = self.context()
             attr = context['attributes']
             result = {'pid': self.pid, 'pawn': hex(context['pawn'])}
-            for name, offset in (('health', 0x58), ('health_max', 0x68), ('health_min', 0xd78), ('shachi', 0x638), ('shachi_max', 0x658), ('attack', 0xc8)):
-                result[name] = struct.unpack('<f', self.read(attr + offset + 12, 4))[0]
-            for name, offset in (('ultimate_charge', 0x898), ('ultimate_charge_max', 0x8a8),
-                                 ('ultimate_count', 0x8b8), ('ultimate_count_max', 0x8c8)):
-                result[name] = struct.unpack('<f', self.read(attr + offset + 12, 4))[0]
+            for name, field in O.STATUS_ATTRIBUTES:
+                result[name] = struct.unpack('<f', self.read(attr + field.current, 4))[0]
+            for name, field in O.STATUS_ULTIMATE:
+                result[name] = struct.unpack('<f', self.read(attr + field.current, 4))[0]
             try:
                 backpack, medicine = self.medicine(context)
-                result['medicine'] = struct.unpack('<i', self.read(medicine + 0x50, 4))[0]
-                result['medicine_base_max'] = struct.unpack('<i', self.read(medicine + 0x58, 4))[0]
-                result['medicine_extra'] = struct.unpack('<i', self.read(backpack + 0x670, 4))[0]
+                result['medicine'] = struct.unpack('<i', self.read(medicine + O.MEDICINE_CURRENT.offset, 4))[0]
+                result['medicine_base_max'] = struct.unpack('<i', self.read(medicine + O.MEDICINE_MAX.offset, 4))[0]
+                result['medicine_extra'] = struct.unpack('<i', self.read(backpack + O.BACKPACK_MEDICINE_EXTRA.offset, 4))[0]
             except (RuntimeError, UnicodeError):
                 result['medicine'] = None
             owner, address, fmt = self.targets('cooldown')[0]
             result['weapon_cooldowns'] = struct.unpack(fmt, self.read(address, struct.calcsize(fmt)))
             result['individual_weapon_cooldowns'] = [
                 {'feature': feature, 'name': self.obj(config)['name'],
-                 'seconds': struct.unpack('<d', self.read(config + 0xe0, 8))[0]}
+                 'seconds': struct.unpack('<d', self.read(config + O.CHANGE_WEAPON_COOLDOWN.offset, 8))[0]}
                 for feature, config in self.weapon_cooldown_configs(context).items()]
             return result
 

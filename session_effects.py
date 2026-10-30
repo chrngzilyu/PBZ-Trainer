@@ -2,6 +2,7 @@
 import math
 import struct
 
+from offsets import HEALTH, HEALTH_MAX
 from errors import ROLLBACK, WRITE, classify, report_issue
 
 
@@ -29,8 +30,8 @@ class SessionEffects:
         context = self.game.context()
         owner = context['attributes']
         identity = self.game.token(owner)
-        current = struct.unpack('<f', self.game.read(owner + 0x64, 4))[0]
-        maximum = struct.unpack('<f', self.game.read(owner + 0x74, 4))[0]
+        current = struct.unpack('<f', self.game.read(owner + HEALTH.current, 4))[0]
+        maximum = struct.unpack('<f', self.game.read(owner + HEALTH_MAX.current, 4))[0]
         if not math.isfinite(current) or not math.isfinite(maximum) or not 0 < current <= maximum <= 1000000:
             raise RuntimeError('角色尚未存活就绪')
         return owner, identity

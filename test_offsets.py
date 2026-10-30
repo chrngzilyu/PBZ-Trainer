@@ -41,5 +41,18 @@ class OffsetTable(unittest.TestCase):
         self.assertEqual(o.PAWN_WEAPONS.args, ('Character Weapons Component', 0xec0, 0x10000, 8))
 
 
+    def test_migrated_literals_absent(self):
+        import re
+        from pathlib import Path
+        root = Path(__file__).resolve().parent
+        migrated = [f.offset for f in o.ATTRIBUTES] + [f.current for f in o.ATTRIBUTES] + [
+            0x1040, 0xec0, 0xf8, 0xe8, 0x9e8, 0x9f0, 0xe0, 0x620, 0x670, 0x50, 0x54, 0x58,
+            0x228, 0x38, 0x30, 0x2f0, 0x358, 0x758, 0x9e0]
+        for name in ('core.py', 'session_effects.py'):
+            text = (root / name).read_text(encoding='utf-8')
+            found = {int(h, 16) for h in re.findall(r'\b0x[0-9a-fA-F]+\b', text)} & set(migrated)
+            self.assertFalse(found, f'{name} still hard-codes {sorted(map(hex, found))}; use offsets.py')
+
+
 if __name__ == '__main__':
     unittest.main()
