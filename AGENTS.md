@@ -4,7 +4,11 @@ Windows x64 外部修改器，当前适配版本与指纹在 profile.json。
 
 - app.py：中文 Tk 面板及只读自检。
 - ui_theme.py：原创深色主题、开关图像和提示。
-- core.py：版本校验、玩家定位、数据写入日志、条件恢复。
+- offsets.py：全部字段/链偏移与上限（游戏更新只改这里和 profile.json）。
+- win32.py → memory.py → ue.py → writer.py → features/（targets、modifiers、resources）→ core.py：分层 mixin，只许上层依赖下层（test_structure.py 检查）。
+- core.py：组合 Game、版本校验、传送入口，并重新导出旧名字。
+- features/resources.py：资源锁由 ResourceLock/LOCKS 配置驱动，各锁差异是配置项，不得随意统一。
+- test_golden_trace.py + tests_golden/trace.json：假内存 IO 轨迹；重构提交不得改变 golden trace。
 - teleport_unlock.py：独立传送分派适配、三秒心跳及条件恢复；显式开启才分配和写入。
 - test_teleport_unlock.py：测试进程自有 x64 代码、假内存和恢复边界；不打开游戏。
 - session_effects.py：加载暂态暂停、当前玩家重绑定和攻击固定目标维护。

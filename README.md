@@ -65,6 +65,31 @@ Windows 64 位修改器，支持中文界面与单文件 EXE。连接时校验�
 
 EXE 日志保存在 `%LOCALAPPDATA%/PBZTrainer/logs/actions.jsonl`；源码模式使用源码目录的 `logs/`。
 
+## 代码结构（fork 第 1–3 步重构）
+
+**对玩家无可见变化**：功能、界面、日志与报错文案都与重构前一致。代码按层拆分（只允许上层依赖下层，`test_structure.py` 用 AST 检查）：
+
+| 层 | 文件 | 职责 |
+|---|---|---|
+| 偏移表 | `offsets.py` | 所有字段偏移、对象链偏移、数值上限（唯一的硬编码偏移来源） |
+| win32 | `win32.py` | Windows API 绑定 |
+| memory | `memory.py` | 打开进程、读写内存、`DataWriteError` |
+| ue | `ue.py` | UE 对象/反射/名称解析、`map_rows`/`_sparse_rows` TMap 解析 |
+| writer | `writer.py` | 写前日志、写入、条件恢复 |
+| features | `features/targets.py`、`modifiers.py`、`resources.py` | 定位玩家目标、数值修改、资源锁（`ResourceLock` 配置表） |
+| core | `core.py` | `Game` 由上述 mixin 组合；版本校验、传送入口；重新导出旧名字，旧的 `from core import ...` 照常可用 |
+
+## 游戏更新后怎么改偏移
+
+1. 先改 `profile.json`（版本号与指纹），没有匹配的指纹时修改器会拒绝连接。
+2. 字段偏移变了：只改 `offsets.py` 里对应的 `Field(...)`/`AttrField(...)` 常量；每个字段都带所属类名和属性名，运行时会先用反射核对，不一致就报错而不是乱写。
+3. 本地跑测试（见下），golden trace 会因为偏移变化而失败，确认差异只是新偏移后用 `python test_golden_trace.py --update`重新生成，并在 `docs/CHANGES.md` 记录。
+4. 仍需实机验收：CI 绿不等于游戏里可用。
+
+### 测试与 golden trace
+
+`tests_golden/trace.json` 记录了 30 个假内存场景下的每一次读、写、日志和报错。纯重构提交必须让它逐字节不变；`test_offsets.py` 还会检查 core.py/session_effects.py 里不再出现已迁移的十六进制偏移。
+
 ## 从源码运行与构建
 
 使用带 Tk 的 Windows x64 Python 3.13：
