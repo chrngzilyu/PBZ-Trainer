@@ -112,3 +112,12 @@
   - `core.py`：`class Game(ProcessMixin)`，并**再导出** `api, open_process, close_handle, image_path, wpm, rpm, snapshot, discover, ProcessEntry, K, DataWriteError` 等名字，所以 `teleport_unlock.py`、`app.py`、测试的 import 都不用改。去掉了已不再使用的 `ctypes/Path/ReadError/WriteError` 导入。
 - **为什么**：Win32 绑定和进程内存读写是最底层，单独成文件后可以单独做替身测试，core 也更短。
 - **影响**：方法仍挂在同一个 `Game` 类上（mixin），测试对 `g.read/g.raw_write` 的补丁照常生效；golden trace 一致。
+
+### C4：拆出 `ue.py` 与 `writer.py`
+- **改了什么**：
+  - 新增 `ue.py`（`UEMixin`）：`refresh_pool/name/obj/token/class_name/property/context/map_rows`，原样搬迁。
+  - 新增 `writer.py`（`WriterMixin`）：`log/patch/restore_record/_rollback_batch/restore_modifiers`，原样搬迁；`log()` 仍在每次调用时取 `log_directory()`，不在 import 时缓存路径。
+  - `core.py`：`class Game(ProcessMixin, UEMixin, WriterMixin)`，删去搬走代码不再需要的导入。
+  - 方案里提到的 `check()/read_current()` 小助手**没有加**：C2 已用 `property(cls, *F.args)` 与 `F.current` 达到同样效果，再加一层只会多一个间接调用。
+- **为什么**：UE 反射解析和"写前日志 / token 校验 / 条件恢复"是两块独立的基础能力，业务功能都建立在它们之上。
+- **影响**：纯搬家，golden trace 一致；写前日志、读回校验、条件恢复逻辑一字未改。

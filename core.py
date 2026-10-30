@@ -1,7 +1,6 @@
 """Verified PBZ data fields; optional teleport dispatch adapter is isolated in its own module."""
 from __future__ import annotations
 
-import datetime as dt
 import hashlib
 import json
 import math
@@ -9,18 +8,20 @@ import struct
 import threading
 import time
 
-from runtime_paths import RESOURCE_HOME, log_directory
+from runtime_paths import RESOURCE_HOME
 import offsets as O
 from errors import LOG, ROLLBACK, IssueQueue, RollbackError, VersionError, report_issue
 
 from win32 import (K, ProcessEntry, api, close_handle, discover, exit_code, image_path, open_process,  # noqa: F401  re-exported
                    process_first, process_next, query_path, rpm, snapshot, wpm)
 from memory import DataWriteError, ProcessMixin  # noqa: F401  re-exported
+from ue import UEMixin
+from writer import WriterMixin
 
 HOME = RESOURCE_HOME
 
 
-class Game(ProcessMixin):
+class Game(ProcessMixin, UEMixin, WriterMixin):
     def __init__(self):
         self.lock = threading.RLock()
         self.handle = None
@@ -63,118 +64,6 @@ class Game(ProcessMixin):
         except BaseException:
             self.close()
             raise
-
-    def refresh_pool(self):
-        self.pool = self.base + self.profile['name_pool_rva']
-        block, cursor = struct.unpack('<II', self.read(self.pool + 8, 8))
-        if not 0 <= block < 8192 or not 0 < cursor <= 131072:
-            raise RuntimeError('名称池布局不匹配')
-        self.blocks = struct.unpack('<' + 'Q' * (block + 1), self.read(self.pool + 16, 8 * (block + 1)))
-
-    def name(self, index):
-        if index in self.names:
-            return self.names[index]
-        block, offset = index >> 16, (index & 65535) * 2
-        if block >= len(self.blocks):
-            self.refresh_pool()
-        if block >= len(self.blocks):
-            raise RuntimeError('对象名称索引无效')
-        header = struct.unpack('<H', self.read(self.blocks[block] + offset, 2))[0]
-        length, wide = header >> 6, header & 1
-        if not 0 < length <= 1023 or offset + 2 + length * (2 if wide else 1) > 131072:
-            raise RuntimeError('对象名称布局无效')
-        value = self.read(self.blocks[block] + offset + 2, length * (2 if wide else 1)).decode('utf-16-le' if wide else 'utf8')
-        self.names[index] = value
-        return value
-
-    def obj(self, address):
-        data = self.read(address, 40)
-        vtable, flags, index, cls, name, number, outer = struct.unpack('<QIiQIIQ', data)
-        if not self.base <= vtable < self.base + self.profile['image_size'] or not 0 <= index < 10000000:
-            raise RuntimeError('对象身份校验失败')
-        return {'address': address, 'index': index, 'class': cls, 'outer': outer, 'flags': flags, 'name': self.name(name)}
-
-    def token(self, address):
-        obj = self.obj(address)
-        return (address, obj['index'], obj['class'], obj['outer'])
-
-    def class_name(self, address):
-        return self.obj(self.obj(address)['class'])['name']
-
-    def property(self, cls, wanted, expected_offset, expected_type, expected_size):
-        key = (cls, wanted)
-        if key not in self.property_cache:
-            seen = set()
-            current = cls
-            result = None
-            while current and current not in seen and len(seen) < 32:
-                seen.add(current)
-                field = self.qword(current + 80)
-                fields = set()
-                while field and field not in fields and len(fields) < 1500:
-                    fields.add(field)
-                    data = self.read(field, 128)
-                    name = self.name(struct.unpack_from('<I', data, 32)[0])
-                    if name == wanted:
-                        kind = self.qword(struct.unpack_from('<Q', data, 8)[0] + 24)
-                        size = struct.unpack_from('<I', data, 52)[0]
-                        offset = struct.unpack_from('<I', data, 68)[0]
-                        result = (offset, kind, size)
-                        break
-                    field = struct.unpack_from('<Q', data, 16)[0]
-                if result:
-                    break
-                current = self.qword(current + 64)
-            if not result:
-                raise RuntimeError('缺少已核对字段：' + wanted)
-            self.property_cache[key] = result
-        if self.property_cache[key] != (expected_offset, expected_type, expected_size):
-            raise RuntimeError('字段布局变化，已停止写入：' + wanted)
-        return expected_offset
-
-    def context(self):
-        if not self.alive():
-            raise RuntimeError('游戏已退出')
-        world = self.qword(self.base + self.profile['world_rva'])
-        if self.class_name(world) != 'World':
-            raise RuntimeError('当前世界尚未就绪')
-        gi = self.qword(world + O.WORLD_GAME_INSTANCE)
-        locals_array, count, capacity = struct.unpack('<Qii', self.read(gi + O.GI_LOCAL_PLAYERS, 16))
-        if not 0 < count <= capacity <= 16:
-            raise RuntimeError('本地玩家尚未就绪')
-        local = self.qword(locals_array)
-        controller = self.qword(local + O.PLAYER_CONTROLLER)
-        pawn = self.qword(controller + O.CONTROLLER_PAWN)
-        if not pawn or pawn != self.qword(controller + O.CONTROLLER_PAWN_CHECK):
-            raise RuntimeError('玩家对象正在切换')
-        player = self.obj(pawn)
-        if player['flags'] & O.RF_CLASS_DEFAULT_OBJECT:
-            raise RuntimeError('不能修改默认对象')
-        attributes = self.qword(pawn + O.PAWN_ATTRIBUTE_SET)
-        attr = self.obj(attributes)
-        if attr['outer'] != pawn or self.class_name(attributes) != 'BasicAttributeSet':
-            raise RuntimeError('玩家属性归属校验失败')
-        return {'world': world, 'controller': controller, 'pawn': pawn, 'attributes': attributes}
-
-    def map_rows(self, address):
-        data = self.read(address, 80)
-        array, count, capacity = struct.unpack_from('<Qii', data)
-        bits, max_bits = struct.unpack_from('<ii', data, 40)
-        if not 0 <= count <= capacity <= 4096 or bits != count or not bits <= max_bits <= 8192:
-            raise RuntimeError('映射布局不匹配')
-        if not count:
-            return []
-        secondary = struct.unpack_from('<Q', data, 32)[0]
-        flags = self.read(secondary, (bits + 7) // 8) if secondary else data[16:32]
-        if len(flags) * 8 < bits:
-            raise RuntimeError('映射分配标记无效')
-        slots = self.read(array, count * 24)
-        rows = []
-        for i in range(count):
-            if flags[i // 8] & (1 << (i % 8)):
-                key, value = struct.unpack_from('<QQ', slots, i * 24)
-                rows.append((key, value))
-        return rows
 
     def weapon_cooldown_configs(self, context=None):
         """Resolve equipped main/sub weapon assets, excluding medicines and interactions."""
@@ -334,127 +223,6 @@ class Game(ProcessMixin):
             if expected_token is not None and tuple(expected_token) != state['token']:
                 raise RuntimeError('意识尘埃所属角色已变化，未写入')
             return self.patch('dust', (amount,), expected_token=state['token'])
-
-    def log(self, row):
-        folder = log_directory()
-        folder.mkdir(parents=True, exist_ok=True)
-        row = {'time_utc': dt.datetime.now(dt.timezone.utc).isoformat(), 'pid': self.pid, **row}
-        with (folder / 'actions.jsonl').open('a', encoding='utf8') as f:
-            f.write(json.dumps(row, ensure_ascii=False) + '\n')
-            f.flush()
-
-    def patch(self, feature, values, expected_token=None, expected_player_token=None):
-        with self.lock:
-            targets = self.targets(feature)
-            if len(targets) != 1:
-                raise RuntimeError('写入目标数量不匹配')
-            owner, address, fmt = targets[0]
-            if len(values) != len(struct.unpack(fmt, bytes(struct.calcsize(fmt)))) or not all(math.isfinite(v) for v in values):
-                raise ValueError('数值无效')
-            token = self.token(owner)
-            if expected_token is not None and token != tuple(expected_token):
-                raise RuntimeError('写入对象已切换，未写入')
-            if expected_player_token is not None and self.token(self.context()['attributes']) != tuple(expected_player_token):
-                raise RuntimeError('玩家已切换，未写入')
-            before = self.read(address, struct.calcsize(fmt))
-            after = struct.pack(fmt, *values)
-            record = {'feature': feature, 'owner': owner, 'token': token, 'address': address, 'fmt': fmt,
-                      'before': before.hex(), 'after': after.hex()}
-            self.log({'action': 'write_intent', **record})
-            if self.targets(feature) != targets or self.token(owner) != token:
-                raise RuntimeError('玩家或目标已变化，未写入')
-            if expected_player_token is not None and self.token(self.context()['attributes']) != tuple(expected_player_token):
-                raise RuntimeError('记录写入前玩家已切换，未写入')
-            try:
-                self.raw_write(address, after)
-                observed = self.read(address, len(after))
-                if observed != after:
-                    raise RuntimeError('游戏立即改写了设置值，请停止并检查')
-                self.log({'action': 'write_verified', **record})
-            except Exception as exc:
-                cleanup = 'target_changed_or_unreadable'
-                try:
-                    current = self.read(address, len(after))
-                    count = getattr(exc, 'bytes_written', 0)
-                    partial = after[:count] + before[count:] if 0 < count < len(after) else None
-                    if self.token(owner) == token and (current == after or current == partial):
-                        self.raw_write(address, before)
-                        cleanup = 'restored_after_error' if self.read(address, len(before)) == before else 'restore_readback_mismatch'
-                    elif self.token(owner) == token and (feature == 'health_floor' or feature.startswith('movement:')):
-                        self.restore_record(record)
-                        cleanup = 'attribute_components_restored_after_error'
-                except Exception as rollback_error:
-                    # Step 4: the rollback itself failed; memory may be half-written. Report, don't swallow.
-                    cleanup = 'rollback_failed'
-                    exc.rollback_errors = getattr(exc, 'rollback_errors', []) + [str(rollback_error)]
-                    exc.issue_reported = True
-                    report_issue(self, ROLLBACK, feature, '写入失败后回滚也失败：' + str(rollback_error))
-                try:
-                    self.log({'action': 'write_failed', 'feature': feature, 'cleanup': cleanup, 'error': str(exc),
-                              'rollback_errors': getattr(exc, 'rollback_errors', [])})
-                except OSError as log_error:
-                    report_issue(self, LOG, feature, log_error)
-                raise
-            return record
-
-    def restore_record(self, record):
-        with self.lock:
-            owner, address = record['owner'], record['address']
-            if not self.alive() or self.token(owner) != tuple(record['token']):
-                raise RuntimeError('原对象已变化，未向旧地址写入')
-            if record['feature'] == 'dust' and self.targets('dust') != [(owner, address, '<i')]:
-                raise RuntimeError('意识尘埃所属角色已切换，未撤销到旧角色')
-            if record['feature'].startswith('movement:') and self.targets(record['feature']) != [(owner, address, record['fmt'])]:
-                raise RuntimeError('移动属性所属角色已变化，未向旧角色恢复')
-            expected = bytes.fromhex(record['after'])
-            original = bytes.fromhex(record['before'])
-            current_block = self.read(address, len(expected))
-            if current_block != expected:
-                movement_partial = record['feature'].startswith('movement:') and any(
-                    current_block[offset:offset + 4] == expected[offset:offset + 4]
-                    and current_block[offset:offset + 4] != original[offset:offset + 4] for offset in (0, 4))
-                if (record['feature'] == 'health_floor' or movement_partial) and record['fmt'] == '<ff' and len(expected) == len(original) == 8:
-                    restored, preserved = [], []
-                    for offset in (0, 4):
-                        wanted = expected[offset:offset + 4]
-                        prior = original[offset:offset + 4]
-                        current = self.read(address + offset, 4)
-                        if current == wanted and current != prior:
-                            action = 'restore_movement_component_intent' if movement_partial else 'restore_floor_component_intent'
-                            self.log({'action': action, 'component_offset': offset, **record})
-                            if self.token(owner) != tuple(record['token']):
-                                raise RuntimeError('恢复下限时对象已变化，停止写入')
-                            if movement_partial and self.targets(record['feature']) != [(owner, address, record['fmt'])]:
-                                raise RuntimeError('恢复移速时玩家已变化，停止写入')
-                            if self.read(address + offset, 4) != wanted:
-                                preserved.append(offset)
-                                continue
-                            self.raw_write(address + offset, prior)
-                            if self.read(address + offset, 4) != prior:
-                                raise RuntimeError('生命下限部分恢复读回不一致')
-                            restored.append(offset)
-                        elif current != prior:
-                            preserved.append(offset)
-                    action = 'restore_movement_components_completed' if movement_partial else 'restore_floor_components_completed'
-                    self.log({'action': action, 'restored_offsets': restored,
-                              'preserved_game_offsets': preserved, **record})
-                    return '已撤销移速修改，保留游戏后续变化' if movement_partial else '已撤销下限修改，保留游戏后续变化'
-                raise RuntimeError('游戏已改变该数值，保留游戏当前状态，未覆盖')
-            self.log({'action': 'restore_intent', **record})
-            if record['feature'].startswith('movement:'):
-                if self.targets(record['feature']) != [(owner, address, record['fmt'])] or self.token(owner) != tuple(record['token']):
-                    raise RuntimeError('恢复移速前角色已变化，未写入')
-                if self.read(address, len(expected)) != expected:
-                    raise RuntimeError('游戏已改变移动速度，保留游戏当前数值')
-            if record['feature'] == 'dust':
-                if self.targets('dust') != [(owner, address, '<i')] or self.token(owner) != tuple(record['token']):
-                    raise RuntimeError('撤销前角色已切换，未写入')
-                if self.read(address, len(expected)) != expected:
-                    raise RuntimeError('游戏已改变意识尘埃，保留游戏当前数量')
-            self.raw_write(address, original)
-            if self.read(address, len(original)) != original:
-                raise RuntimeError('恢复读回不一致')
-            self.log({'action': 'restore_verified', **record})
 
     def refill(self, feature, expected_token=None, expected_player_token=None):
         with self.lock:
@@ -965,32 +733,6 @@ class Game(ProcessMixin):
                 raise
             # Existing bounded trial callers use this primary record; all changes remain in undo.
             return next((r for r in completed if r['feature'] == 'cooldown'), None)
-
-    def _rollback_batch(self, completed, exc):
-        """Undo a partially applied group in reverse; failed entries stay in self.undo for manual recovery."""
-        failures = []
-        for record in reversed(completed):
-            try:
-                self.restore_record(record)
-                del self.undo[record['feature']]
-            except Exception as rollback_error:
-                failures.append(record['feature'] + '：' + str(rollback_error))
-                report_issue(self, ROLLBACK, record['feature'], '批量修改回滚失败，修改仍残留：' + str(rollback_error))
-        if failures:
-            exc.rollback_errors = getattr(exc, 'rollback_errors', []) + failures
-            exc.issue_reported = True
-        return failures
-
-    def restore_modifiers(self):
-        results = {}
-        for feature, record in list(self.undo.items()):
-            try:
-                result = self.restore_record(record)
-                results[feature] = result or '已恢复'
-                del self.undo[feature]
-            except Exception as exc:
-                results[feature] = str(exc)
-        return results
 
     def status(self):
         with self.lock:
