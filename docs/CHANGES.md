@@ -136,3 +136,9 @@
 - **改了什么**：`ue.py` 新增 `_sparse_rows(address, stride, max_count, max_bits, require_nonempty, err)`：读 80 字节头 → 校验 count/capacity/bits → 读 secondary 分配标记（或用头内 16..32 的内联标记）→ 返回 `(array, count, [(i, 行地址), ...])`，**不读行内容**。`map_rows`（步长 24，上限 4096/8192，允许为空，报错「映射布局不匹配」）改为调用它后整段读行；`weapon_cooldown_configs`（步长 48，上限 32/128，要求非空，报错「武器槽映射布局变化」）改为调用它后逐行读取。方案里的 `bulk` 参数改成"由调用方自己决定怎么读行"，效果相同、接口更简单。
 - **为什么**：同一段 TMap 边界检查原来有两份，修一个 bug 要改两处。
 - **影响**：两个调用方的读取顺序、地址、尺寸、报错文案都不变；golden trace 一致。唯一的新增是武器槽也会走「映射分配标记无效」的长度检查，但对武器槽它不可能触发（读回长度恒等于请求长度；内联标记 16 字节 = 128 位，正好等于上限），所以没有行为差异。`map_rows` 签名与返回值不变（teleport 和测试在用）。
+
+### C7：四个资源锁收敛为 `ResourceLock` 配置
+- **改了什么**：`features/resources.py` 新增冻结数据类 `ResourceLock` 和 `LOCKS` 表，覆盖 health（自动回血）、shachi（杀气）、spirit_shadow（锁暗源）、ultimate（精纯杀气）四个锁；通用的 `_lock_start/_lock_stop/_lock_pulse` 实现启动、停止、心跳三段逻辑；原来的 12 个 `start_/stop_/pulse_auto_*` 方法保留名字，变成一行包装。药品锁和层数锁**不在此列**（逻辑不同，按方案不动）。
+- **原有差异全部变成配置项保留**：health 启动前先停层数锁，启动时用反射校验 Max 并要求当前值 >0（死亡视为无效），报错文案不变；暗源的属主取自 `targets('spirit_shadow')`，其余三个取自 `context()['attributes']`；心跳时的反射检查：health/shachi 不查，暗源只查 Max，ultimate 当前值和 Max 都查；ultimate 有两对字段，次数上限 100；ultimate 补满走 `refill_ultimate`。各锁的玩家切换和状态异常文案逐字保留。
+- **为什么**：四份几乎相同的代码，以后改一处容易漏掉另外三处；新增一个锁也只需要加一行配置。
+- **影响**：读写顺序、地址、日志和报错都不变，golden trace 逐字节一致（30 个场景覆盖了每个锁的启动、心跳、切换、异常和停止）。
