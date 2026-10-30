@@ -89,3 +89,8 @@
 - **改了什么**：新增 `test_golden_trace.py` 与 `tests_golden/trace.json`。夹具在内存里构造一套完整的假游戏映像（名称池、UObject 头、反射字段链、World→玩家指针链、武器 TMap、背包子系统 TMap、药品 TMap），让**真实的** `Game` 代码（`obj/token/property/context/map_rows/patch/restore_record/...`）在上面运行；只替换最底层的 `read/raw_write/log/alive`，并给 `property` 套记录器。按顺序记录每次读（地址、长度）、写（地址、字节）、写失败注入、`property` 参数、日志行（不含时间和 pid）、每一步的返回值或异常类型与中文文案、`rollback_errors`、上报的 issue、最终 undo。共 30 个场景：status、全部 targets、TMap/武器/背包/药品解析、refill ×5 与 refill_ultimate、五种锁的 start/pulse（补/不补/异常/玩家切换）/stop、attack/one_hit、incoming、movement（含部分分量恢复）、cooldown、生命下限锁（修复、部分恢复、死亡、切换、恢复失败）、dust、patch 守卫、写入中途失败与回滚失败。
 - **为什么**：重构是“纯搬家 + 等价替换”，需要一个比现有单测更细的安全网，能发现读写顺序、地址、调用次数、文案的任何漂移。
 - **影响**：只加测试，不改运行时代码。用例数 110 → 112。基线在旧代码（`step8-ci` 7758d9c）上生成。只有有意且在本文档写明原因的行为变化才允许 `python test_golden_trace.py --update` 重录。
+
+### C1：新增偏移表 `offsets.py`（暂无引用）
+- **改了什么**：新增 `offsets.py`。`Field(owner, name, offset, kind, size)` 记录一个反射字段，`.args` 直接给 `property(cls, *field.args)` 用；`AttrField` 专门表示 FGameplayAttributeData，`.base`（offset+8，写 Base+Current 的 `'<ff'` 起点）和 `.current`（offset+12，读 Current）把原代码里隐式的 +8/+12 约定变成有名字的属性。表内有 BasicAttributeSet 的 18 个字段、Pawn/武器/背包/药品字段、固定指针链（0x228/0x38/0x30/0x2f0/0x358/0x758/0x9e0）、业务上限 `LIMITS`，以及 `MOVEMENT`/`INCOMING`/`RESOURCE_FIELD`/`RESOURCE_MAX`/`STATUS_*` 查找表。未经反射核对的武器 config 指针 0xe8 单独记为 `UNVERIFIED_WEAPON_CONFIG_PTR`，本次不加核对。新增 `test_offsets.py`（4 个）：`0x58+12==0x64`、`0x908+12==0x914`、精纯杀气 `+16/+28` 推算等恒等式；属性字段不重名、不重叠；其它类字段按所属类不重叠；查找表内容。
+- **为什么**：同一偏移最多重复 9 处，还有 0x64/0x74/0x914/+16/+28 这类推算地址，游戏更新时最容易漏改。
+- **影响**：本提交还没有任何代码引用它，运行时行为不变；golden trace 一致。用例 112 → 116。
