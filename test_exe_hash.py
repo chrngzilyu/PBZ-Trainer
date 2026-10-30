@@ -128,5 +128,12 @@ class CorePath(unittest.TestCase):
             self.assertEqual(runtime_paths.log_directory(), Path(tmp) / 'PBZTrainer' / 'logs')
 
 
+class AppFlag(unittest.TestCase):
+    def test_app_exposes_no_hash_cache_switch(self):
+        text = (Path(__file__).resolve().parent / 'app.py').read_text(encoding='utf-8')
+        self.assertIn("'--no-hash-cache'", text)
+        self.assertIn('os.environ[NO_CACHE_ENV] = ', text)
+
+
 if __name__ == '__main__':
     unittest.main()

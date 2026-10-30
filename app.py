@@ -1,12 +1,14 @@
 """Manual panel. Connecting and refreshing are read-only."""
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox, ttk
 
 from core import Game
+from exe_hash import NO_CACHE_ENV
 from errors import READ, ROLLBACK, TARGET_GONE, IssueQueue, classify, recent_lines, summarize_issues
 from session_effects import SessionEffects
 from runtime_paths import RESOURCE_HOME, log_directory
@@ -394,7 +396,8 @@ class Panel:
             self.connection.set('●  已连接')
             self.enabled(True)
             self.refresh()
-            self.message.set('已连接。补充按钮单次执行；倍率和冷却可手动恢复，资源锁定默认关闭。')
+            source = '缓存命中' if getattr(self.game, 'hash_source', '') == 'cache' else '完整校验'
+            self.message.set('已连接（版本校验：' + source + '）。补充按钮单次执行；倍率和冷却可手动恢复，资源锁定默认关闭。')
         except Exception as exc:
             self.connection.set('●  连接不可用')
             self.enabled(False)
@@ -686,7 +689,10 @@ def main():
     parser.add_argument('--check-game', action='store_true', help='Read-only connection check; requires --self-check')
     parser.add_argument('--report')
     parser.add_argument('--preview', action='store_true', help='UI preview only; no game connection or writes')
+    parser.add_argument('--no-hash-cache', action='store_true', help='Always hash the whole game EXE; ignore the startup hash cache')
     args = parser.parse_args()
+    if args.no_hash_cache or args.check_game:
+        os.environ[NO_CACHE_ENV] = '1'
     if args.check_game and not args.self_check:
         parser.error('--check-game requires --self-check')
     root = tk.Tk()
