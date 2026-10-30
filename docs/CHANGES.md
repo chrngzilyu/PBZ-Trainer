@@ -70,3 +70,8 @@
 - **改了什么**：在 `inputs` 中补上第 4 步新增的 `errors.py`（插在 `core.py` 与 `ui_theme.py` 之间）。
 - **为什么**：PyInstaller 会因 import 把 `errors.py` 打进包，但构建报告的 `input_sha256` 原先漏记该文件；首次跑 build job 时若漏记也不利于审计。
 - **影响/兼容**：打包产物内容不变（本来就会被 import 进来）；仅报告多一条哈希。本地构建命令不变。
+
+### 3. CI 首次跑红后的最小修复：`test_session_persistence.py`
+- **改了什么**：假 Panel 夹具（`Panel.__new__`，不走 `__init__`）补上第 4 步新增的 `issues` / `issue_log` / `rollback_warned` / `issue_text` / `issue_label`。
+- **为什么**：`tick()` 末尾会调用 `drain_issues()` 与 `issues.read_ok()`；夹具原先没这些字段，Windows CI 上 6 个 session 用例报 `AttributeError`。本机 Linux 从未跑过该文件，第 4 步漏测。
+- **影响/兼容**：只改测试夹具，不改运行时代码；真实 `Panel.__init__` 本来就会初始化这些字段。
