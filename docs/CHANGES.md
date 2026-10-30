@@ -121,3 +121,12 @@
   - 方案里提到的 `check()/read_current()` 小助手**没有加**：C2 已用 `property(cls, *F.args)` 与 `F.current` 达到同样效果，再加一层只会多一个间接调用。
 - **为什么**：UE 反射解析和"写前日志 / token 校验 / 条件恢复"是两块独立的基础能力，业务功能都建立在它们之上。
 - **影响**：纯搬家，golden trace 一致；写前日志、读回校验、条件恢复逻辑一字未改。
+
+### C5：拆出 `features/`，core 只剩组装
+- **改了什么**：
+  - 新增包 `features/`：`targets.py`（`TargetsMixin`：`weapon_cooldown_configs/weapon_cooldown_features/backpack/medicine/medicine_state/targets/dust_state/set_dust/status`）、`modifiers.py`（`ModifiersMixin`：`modifier/_apply_attack/start_one_hit/stop_one_hit/incoming_modifier/movement_modifier/restore_movement/switch_cooldown_modifier` 与生命下限锁 `start/stop/check_floor_lock`）、`resources.py`（`ResourcesMixin`：`refill/refill_ultimate` 与五组 `start/stop/pulse_auto_*`）。全部原样搬迁。
+  - `core.py` 从 1151 行缩到约 95 行：`class Game(ProcessMixin, UEMixin, WriterMixin, TargetsMixin, ModifiersMixin, ResourcesMixin)`，只保留 `__init__`（版本/PE/名称池校验原样）、`close()` 与传送三个方法，以及再导出。
+  - 新增 `test_structure.py`（6 个）：`Game` 的基类顺序；各 mixin 方法两两不重名；依赖方向只能是 win32 → memory → ue → writer → features → core（用 AST 检查 import）；core 再导出的名字齐全；app / session_effects / teleport / 测试用到的方法都还在 `Game` 上；`build_exe.py` 的 inputs 含所有新文件。
+  - `build_exe.py`：`inputs` 加上 `win32.py/memory.py/ue.py/writer.py/offsets.py/features/*.py`（只影响构建报告的哈希清单；PyInstaller 本来就会按 import 打包）。
+- **为什么**：单文件里 Win32、UE 解析、写入恢复和业务逻辑混在一起；拆开后每个文件 50–270 行、职责单一，以后加功能只动 `features/`。
+- **影响**：仍是同一个 `Game` 类，测试补丁和 app 调用不变；golden trace 一致。用例 117 → 123。

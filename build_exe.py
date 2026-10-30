@@ -39,7 +39,9 @@ def main():
     StringStruct('ProductVersion', '0.13.1')])]),
     VarFileInfo([VarStruct('Translation', [2052, 1200])])])
 """, encoding='utf8')
-    inputs = ['app.py', 'core.py', 'errors.py', 'ui_theme.py', 'session_effects.py', 'teleport_unlock.py', 'runtime_paths.py', 'profile.json',
+    inputs = ['app.py', 'core.py', 'win32.py', 'memory.py', 'ue.py', 'writer.py', 'offsets.py',
+              'features/__init__.py', 'features/targets.py', 'features/modifiers.py', 'features/resources.py',
+              'errors.py', 'ui_theme.py', 'session_effects.py', 'teleport_unlock.py', 'runtime_paths.py', 'profile.json',
               'assets/app.ico', 'assets/THIRD_PARTY_NOTICES.txt']
     for relative in inputs:
         if not (SOURCE / relative).is_file():

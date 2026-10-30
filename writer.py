@@ -8,7 +8,6 @@ import struct
 
 from runtime_paths import log_directory
 from errors import LOG, ROLLBACK, report_issue
-from memory import DataWriteError
 
 
 class WriterMixin:
