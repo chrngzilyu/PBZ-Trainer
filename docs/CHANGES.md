@@ -75,3 +75,8 @@
 - **改了什么**：假 Panel 夹具（`Panel.__new__`，不走 `__init__`）补上第 4 步新增的 `issues` / `issue_log` / `rollback_warned` / `issue_text` / `issue_label`。
 - **为什么**：`tick()` 末尾会调用 `drain_issues()` 与 `issues.read_ok()`；夹具原先没这些字段，Windows CI 上 6 个 session 用例报 `AttributeError`。本机 Linux 从未跑过该文件，第 4 步漏测。
 - **影响/兼容**：只改测试夹具，不改运行时代码；真实 `Panel.__init__` 本来就会初始化这些字段。
+
+### 4. CI 打包：控制台编码
+- **改了什么**：build job 的 `Build one-file EXE` 步骤增加环境变量 `PYTHONIOENCODING=utf-8`。
+- **为什么**：PyInstaller 已成功产出 EXE 与 `build-report.json`，但 `build_exe.py` 最后 `print` 含中文路径时，Actions 托管 runner（cp1252）报 `UnicodeEncodeError`，步骤以非零退出，artifact 未上传。
+- **影响/兼容**：只影响 CI 环境；本机中文 Windows 控制台（GBK）本来就能打印。不改 `build_exe.py` 业务逻辑。
