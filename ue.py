@@ -99,23 +99,30 @@ class UEMixin:
             raise RuntimeError('玩家属性归属校验失败')
         return {'world': world, 'controller': controller, 'pawn': pawn, 'attributes': attributes}
 
-    def map_rows(self, address):
+    def _sparse_rows(self, address, stride, max_count, max_bits, require_nonempty, err):
+        """Validate a TMap/TSet header and return (array, count, [(i, row_address), ...]) for allocated slots.
+
+        Reads, in order: the 80-byte header, then the secondary allocation flags if any.
+        Row contents are not read here, so callers keep their original read order.
+        """
         data = self.read(address, 80)
         array, count, capacity = struct.unpack_from('<Qii', data)
-        bits, max_bits = struct.unpack_from('<ii', data, 40)
-        if not 0 <= count <= capacity <= 4096 or bits != count or not bits <= max_bits <= 8192:
-            raise RuntimeError('映射布局不匹配')
+        bits, allocated_bits = struct.unpack_from('<ii', data, 40)
+        low = 1 if require_nonempty else 0
+        if not low <= count <= capacity <= max_count or bits != count or not bits <= allocated_bits <= max_bits:
+            raise RuntimeError(err)
         if not count:
-            return []
+            return array, 0, []
         secondary = struct.unpack_from('<Q', data, 32)[0]
         flags = self.read(secondary, (bits + 7) // 8) if secondary else data[16:32]
         if len(flags) * 8 < bits:
             raise RuntimeError('映射分配标记无效')
+        return array, count, [(i, array + i * stride) for i in range(count) if flags[i // 8] & (1 << (i % 8))]
+
+    def map_rows(self, address):
+        array, count, rows = self._sparse_rows(address, 24, 4096, 8192, False, '映射布局不匹配')
+        if not count:
+            return []
         slots = self.read(array, count * 24)
-        rows = []
-        for i in range(count):
-            if flags[i // 8] & (1 << (i % 8)):
-                key, value = struct.unpack_from('<QQ', slots, i * 24)
-                rows.append((key, value))
-        return rows
+        return [struct.unpack_from('<QQ', slots, i * 24) for i, _ in rows]
 

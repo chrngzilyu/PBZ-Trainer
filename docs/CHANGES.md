@@ -130,3 +130,9 @@
   - `build_exe.py`：`inputs` 加上 `win32.py/memory.py/ue.py/writer.py/offsets.py/features/*.py`（只影响构建报告的哈希清单；PyInstaller 本来就会按 import 打包）。
 - **为什么**：单文件里 Win32、UE 解析、写入恢复和业务逻辑混在一起；拆开后每个文件 50–270 行、职责单一，以后加功能只动 `features/`。
 - **影响**：仍是同一个 `Game` 类，测试补丁和 app 调用不变；golden trace 一致。用例 117 → 123。
+- **CI**：push 测试 job 绿；手动触发（workflow_dispatch）的打包 job 也绿，EXE 与 `build-report.json` 均已产出。
+
+### C6：TMap 解析合并为 `_sparse_rows`
+- **改了什么**：`ue.py` 新增 `_sparse_rows(address, stride, max_count, max_bits, require_nonempty, err)`：读 80 字节头 → 校验 count/capacity/bits → 读 secondary 分配标记（或用头内 16..32 的内联标记）→ 返回 `(array, count, [(i, 行地址), ...])`，**不读行内容**。`map_rows`（步长 24，上限 4096/8192，允许为空，报错「映射布局不匹配」）改为调用它后整段读行；`weapon_cooldown_configs`（步长 48，上限 32/128，要求非空，报错「武器槽映射布局变化」）改为调用它后逐行读取。方案里的 `bulk` 参数改成"由调用方自己决定怎么读行"，效果相同、接口更简单。
+- **为什么**：同一段 TMap 边界检查原来有两份，修一个 bug 要改两处。
+- **影响**：两个调用方的读取顺序、地址、尺寸、报错文案都不变；golden trace 一致。唯一的新增是武器槽也会走「映射分配标记无效」的长度检查，但对武器槽它不可能触发（读回长度恒等于请求长度；内联标记 16 字节 = 128 位，正好等于上限），所以没有行为差异。`map_rows` 签名与返回值不变（teleport 和测试在用）。

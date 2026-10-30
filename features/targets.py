@@ -16,19 +16,10 @@ class TargetsMixin:
         if self.obj(weapons)['outer'] != pawn or self.class_name(weapons) != 'CharacterWeaponsComponent':
             raise RuntimeError('武器组件归属不匹配')
         self.property(self.obj(weapons)['class'], *O.WEAPONS_RUNTIME_DATA.args)
-        raw = self.read(weapons + O.WEAPONS_RUNTIME_DATA.offset, 80)
-        array, count, capacity = struct.unpack_from('<Qii', raw)
-        bits, max_bits = struct.unpack_from('<ii', raw, 40)
-        if not 0 < count <= capacity <= 32 or bits != count or not bits <= max_bits <= 128:
-            raise RuntimeError('武器槽映射布局变化')
-        secondary = struct.unpack_from('<Q', raw, 32)[0]
-        flags = self.read(secondary, (bits + 7) // 8) if secondary else raw[16:32]
+        _, _, rows = self._sparse_rows(weapons + O.WEAPONS_RUNTIME_DATA.offset, 48, 32, 128, True, '武器槽映射布局变化')
         found = {}
         seen = set()
-        for i in range(count):
-            if not flags[i // 8] & (1 << (i % 8)):
-                continue
-            row = array + i * 48
+        for _, row in rows:
             name, number = struct.unpack('<II', self.read(row, 8))
             slot = self.name(name)
             if number or slot not in ('Weapon.Slot.Main', 'Weapon.Slot.Shachi'):
