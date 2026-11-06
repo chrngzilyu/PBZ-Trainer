@@ -1,9 +1,18 @@
 {
-  "version": "0.13.1-source",
-  "steam_build": "26266538",
-  "sha256": "7b4fcd286a350780faf0824d73aa150b21cbf1bccde883e6a96386cbe09973b4",
+  "version": "0.13.2-source",
+  "steam_build": "26367565",
+  "sha256": "4415933ce33476f14c837abb61a1b60af8b78cd81783896501913a7aac69e423",
   "base": 5368709120,
-  "image_size": 516243456,
-  "name_pool_rva": 231807680,
-  "world_rva": 234298136
+  "image_size": 504082432,
+  "name_pool_rva": 232286912,
+  "world_rva": 234443560,
+  "switch_cooldown_offset": 2544,
+  "teleport": {
+    "qpc_iat_rva": 174431776,
+    "frame_reader_rva": 23274698,
+    "functions": {
+      "GetItemNumInfo": {"global_rva": 235468008, "native_rva": 107074368},
+      "RemovePropsFromBackPack": {"global_rva": 235468808, "native_rva": 107094448}
+    }
+  }
 }

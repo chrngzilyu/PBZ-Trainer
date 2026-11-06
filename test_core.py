@@ -49,6 +49,19 @@ class Fake(Game):
 
 
 class Safeguards(unittest.TestCase):
+    def test_switch_cooldown_uses_verified_build_offset(self):
+        g = Game.__new__(Game)
+        g.profile = {'switch_cooldown_offset': 0x9f0}
+        g.context = lambda: {'pawn': 100, 'attributes': 5000}
+        g.qword = lambda address: {100 + 0xec0: 1000, 1000 + 0xe8: 2000}[address]
+        g.obj = lambda address: {'outer': 100, 'class': 3000}
+        g.class_name = lambda address: 'CharacterWeaponsComponent'
+        g.property = unittest.mock.Mock()
+        self.assertEqual(g.targets('cooldown'), [(2000, 2000 + 0x9f0, '<dd')])
+        self.assertEqual(g.property.call_args_list[-2:], [
+            unittest.mock.call(3000, 'Switch Main Weapon Cooldown', 0x9f0, 0x100000000, 8),
+            unittest.mock.call(3000, 'Switch Shachi Weapon Cooldown', 0x9f8, 0x100000000, 8)])
+
     def test_frozen_action_log_survives_outside_bundled_resources(self):
         with tempfile.TemporaryDirectory() as directory:
             g = Fake()

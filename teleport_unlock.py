@@ -17,11 +17,12 @@ MAGIC = b'PBZTRV13'
 ALLOCATION_SIZE = 8192
 CODE_OFFSET = 4096
 REMOVE_OFFSET = 5120
+# Historical research imports only. Runtime addresses must come from the verified profile.
 QPC_IAT_RVA = 0xa618c98
 FUNCTIONS = (
-    ('GetItemNumInfo', 0xe01a4e8, 0x65d45d0, bytes.fromhex('48895c24085556574883'),
+    ('GetItemNumInfo', bytes.fromhex('48895c24085556574883'),
      (('PropID', 0, 0x2000, 8), ('CurrentNum', 8, 0x80, 4), ('MaxNum', 12, 0x80, 4))),
-    ('RemovePropsFromBackPack', 0xe01a808, 0x65d9440, bytes.fromhex('48895c24084889742418'),
+    ('RemovePropsFromBackPack', bytes.fromhex('48895c24084889742418'),
      (('Num', 0, 0x80, 4), ('ItemId', 4, 0x2000, 8), ('bSendBroadcast', 12, 0x20000, 1))),
 )
 
@@ -177,9 +178,33 @@ def snapshot(game, key):
     return {'token': identity, 'amount': amount, 'maximum': maximum, 'record_present': bool(rows)}
 
 
+def native_layout(game):
+    """Reject incomplete build metadata before allocating or installing adapters."""
+    profile = getattr(game, 'profile', {})
+    layout = profile.get('teleport')
+    image_size = profile.get('image_size')
+    if not isinstance(layout, dict) or type(image_size) is not int or image_size <= 0:
+        raise RuntimeError('当前版本缺少已核对的传送布局')
+    functions = layout.get('functions')
+    if not isinstance(functions, dict) or set(functions) != {f[0] for f in FUNCTIONS}:
+        raise RuntimeError('当前版本传送函数配置不完整')
+    values = [layout.get('qpc_iat_rva'), layout.get('frame_reader_rva')]
+    for name in functions:
+        row = functions[name]
+        if not isinstance(row, dict):
+            raise RuntimeError('当前版本传送函数配置无效')
+        values.extend((row.get('global_rva'), row.get('native_rva')))
+    if any(type(value) is not int or not 0 < value < image_size - 32 for value in values):
+        raise RuntimeError('当前版本传送相对地址无效')
+    return layout
+
+
 def descriptors(game):
+    layout = native_layout(game)
     result = []
-    for name, global_rva, native_rva, signature, parameters in FUNCTIONS:
+    for name, signature, parameters in FUNCTIONS:
+        global_rva = layout['functions'][name]['global_rva']
+        native_rva = layout['functions'][name]['native_rva']
         pointer = game.qword(game.base + global_rva)
         obj = game.obj(pointer)
         if obj['name'] != name or game.class_name(pointer) != 'Function' or game.obj(obj['outer'])['name'] != 'PBZBackPackSubsystem':
@@ -300,6 +325,7 @@ class TeleportUnlock:
         self.clock_frequency = frequency()
 
     def prepare(self):
+        layout = native_layout(self.game)
         entries = descriptors(self.game)
         key = item_key(self.game)
         if self.pages:
@@ -310,9 +336,10 @@ class TeleportUnlock:
             if self.game.qword(entry['slot']) != entry['original']:
                 raise RuntimeError('已有其他传送拦截，未覆盖；请关闭对应面板后重新连接')
         # Verify the exact FFrame locals/out-reference reader for this supported binary.
-        if self.game.read(self.game.base + 0x1632fea, 8) != bytes.fromhex('4c8b412849634144'):
+        if self.game.read(self.game.base + layout['frame_reader_rva'], 8) != bytes.fromhex('4c8b412849634144'):
             raise RuntimeError('传送调用帧布局无法核对')
-        if not 0x10000 <= self.game.qword(self.game.base + QPC_IAT_RVA) < 0x7fffffffffff:
+        qpc_iat = self.game.base + layout['qpc_iat_rva']
+        if not 0x10000 <= self.game.qword(qpc_iat) < 0x7fffffffffff:
             raise RuntimeError('传送保护计时入口未就绪')
         pages = self.pages_factory(self.game)
         try:
@@ -324,7 +351,7 @@ class TeleportUnlock:
             struct.pack_into('<QQ', data, 0x60, entries[0]['fields']['CurrentNum'], entries[0]['fields']['MaxNum'])
             pages.write(address, bytes(data))
             for entry, offset, kind in zip(entries, (CODE_OFFSET, REMOVE_OFFSET), ('query', 'remove')):
-                pages.write(address + offset, build_adapter(address, entry['original'], self.game.base + QPC_IAT_RVA, key, kind))
+                pages.write(address + offset, build_adapter(address, entry['original'], qpc_iat, key, kind))
             pages.seal()
         except Exception:
             pages.close()

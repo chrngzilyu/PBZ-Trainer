@@ -101,7 +101,7 @@ class Panel:
     def __init__(self, root, autoconnect=True):
         self.root, self.game = root, None
         self.controls = []
-        root.title('影之刃零 · 修改器 0.13.1')
+        root.title('影之刃零 · 修改器 0.13.2')
         root.geometry(f'1040x{min(880, root.winfo_screenheight() - 90)}')
         root.minsize(960, 680)
         root.protocol('WM_DELETE_WINDOW', self.close)
@@ -116,7 +116,7 @@ class Panel:
         title = ttk.Frame(header)
         title.pack(side='left')
         ttk.Label(title, text='影之刃零', style='Title.TLabel').pack(anchor='w')
-        ttk.Label(title, text='修改器   /   0.13.1   /   悬停查看功能说明', style='Hint.TLabel').pack(anchor='w', pady=(2, 0))
+        ttk.Label(title, text='修改器   /   0.13.2   /   悬停查看功能说明', style='Hint.TLabel').pack(anchor='w', pady=(2, 0))
         self.connect_button = ttk.Button(header, text='连接游戏', command=self.connect, style='Accent.TButton')
         self.connect_button.pack(side='right', padx=(16, 0))
         self.connection = tk.StringVar(value='●  未连接')
@@ -632,7 +632,7 @@ def main():
         root.withdraw()
     panel = Panel(root, autoconnect=not (args.self_check or args.preview))
     if args.preview:
-        root.title('影之刃零 · 0.13.1 界面预览')
+        root.title('影之刃零 · 0.13.2 界面预览')
         panel.connect_button.state(['disabled'])
         panel.connection.set('●  界面预览 · 未连接游戏')
         panel.message.set('预览模式：功能禁用，不连接或修改游戏。正在运行的修改器保持原状。')

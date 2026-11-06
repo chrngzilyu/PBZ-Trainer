@@ -1,18 +1,18 @@
-# 影之刃零修改器 v0.13.1
+# 影之刃零修改器 v0.13.2
 
 Windows 64 位修改器，支持中文界面与单文件 EXE。连接时校验游戏版本，所有修改功能默认关闭。
 
-**[下载 v0.13.1](https://github.com/sdkdsd/PBZ-Trainer/releases/tag/v0.13.1)** · [更新记录](CHANGELOG.md) · [验证记录](VALIDATION.md)
+**[下载 v0.13.2](https://github.com/sdkdsd/PBZ-Trainer/releases/tag/v0.13.2)** · [更新记录](CHANGELOG.md) · [验证记录](VALIDATION.md)
 
 修复了一些已知bug
 
 ## 下载与使用
 
-1. 打开 Release 页面，在 Assets 中下载 `PBZ-Trainer-v0.13.1.exe`。
+1. 打开 Release 页面，在 Assets 中下载 `PBZ-Trainer-v0.13.2.exe`。
 2. 进入可以操作角色的场景后双击 EXE，程序会尝试连接游戏。
 3. 按需开启功能。无需安装 Python，也不需要额外的配置文件或 runtime 文件夹。
 
-当前支持 **Steam build 26266538** 的 Windows x64 主程序；其他版本需要重新适配。
+当前支持 **Steam build 26367565** 的 Windows x64 主程序；其他版本需要重新适配。
 
 ## 随地传送解锁
 
