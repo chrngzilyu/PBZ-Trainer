@@ -94,8 +94,8 @@ PAWN_WEAPONS = Field('Pawn', 'Character Weapons Component', 0xec0, T_OBJ, 8)
 WEAPONS_RUNTIME_DATA = Field('CharacterWeaponsComponent', 'RuntimeWeaponData', 0xf8, T_MAP, 80)
 # NOT verified by reflection yet; kept unchecked on purpose (planned for step 10).
 UNVERIFIED_WEAPON_CONFIG_PTR = 0xe8
-SWITCH_MAIN_COOLDOWN = Field('WeaponConfig', 'Switch Main Weapon Cooldown', 0x9e8, T_DOUBLE, 8)
-SWITCH_SHACHI_COOLDOWN = Field('WeaponConfig', 'Switch Shachi Weapon Cooldown', 0x9f0, T_DOUBLE, 8)
+SWITCH_MAIN_COOLDOWN = Field('WeaponConfig', 'Switch Main Weapon Cooldown', 0x9f0, T_DOUBLE, 8)  # runtime uses profile switch_cooldown_offset
+SWITCH_SHACHI_COOLDOWN = Field('WeaponConfig', 'Switch Shachi Weapon Cooldown', 0x9f8, T_DOUBLE, 8)
 CHANGE_WEAPON_COOLDOWN = Field('WeaponConfig', 'Change Weapon Cooldown', 0xe0, T_DOUBLE, 8)
 BACKPACK_MEDICINES = Field('BackPackSubsystem', 'MedicineInfos', 0x620, T_MAP, 80)
 BACKPACK_MEDICINE_EXTRA = Field('BackPackSubsystem', 'MedicineExtraUsage', 0x670, T_INT, 4)

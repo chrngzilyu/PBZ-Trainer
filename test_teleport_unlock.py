@@ -150,8 +150,12 @@ class FakeGame:
         self.memory, self.logs = {}, []
         self.lock = threading.RLock()
         self.running = True
+        self.profile = {'image_size': 0x10000000, 'teleport': {
+            'qpc_iat_rva': 0x9000, 'frame_reader_rva': 0xa000,
+            'functions': {
+                'GetItemNumInfo': {'global_rva': 0xb000, 'native_rva': 0xc000},
+                'RemovePropsFromBackPack': {'global_rva': 0xb008, 'native_rva': 0xd000}}}}
     def read(self, address, size):
-        if address == self.base + 0x1632fea: return bytes.fromhex('4c8b412849634144')
         return bytes(self.memory.get(address + i, 0) for i in range(size))
     def put(self, address, payload):
         self.memory.update({address + i: v for i, v in enumerate(payload)})
@@ -186,7 +190,8 @@ class Lifecycle(unittest.TestCase):
                     'token': g.token(0x1000 + i * 512), 'original': 0x5000 + i * 512,
                     'fields': {'CurrentNum': 0x1110, 'MaxNum': 0x2220}} for i, name in enumerate(('query', 'remove'))]
         for e in entries: g.put(e['slot'], struct.pack('<Q', e['original']))
-        g.put(g.base + travel.QPC_IAT_RVA, struct.pack('<Q', 0x77770000))
+        g.put(g.base + g.profile['teleport']['qpc_iat_rva'], struct.pack('<Q', 0x77770000))
+        g.put(g.base + g.profile['teleport']['frame_reader_rva'], bytes.fromhex('4c8b412849634144'))
         state = {'token': (0x3000, 3, 0x4000, 0x5000), 'amount': 0, 'maximum': 1, 'record_present': False}
         for target, replacement in (('descriptors', lambda game: entries), ('item_key', lambda game: KEY),
                                     ('snapshot', lambda game, key: dict(state))):
@@ -194,6 +199,21 @@ class Lifecycle(unittest.TestCase):
         pages = FakePages(g)
         controller = travel.TeleportUnlock(g, lambda game: pages)
         return g, controller, pages, entries, state
+
+    def test_uses_profile_clock_slot_in_generated_code(self):
+        g, controller, pages, entries, state = self.fixture()
+        controller.start()
+        code = g.read(pages.address + travel.CODE_OFFSET, 1024)
+        self.assertIn(struct.pack('<Q', g.base + g.profile['teleport']['qpc_iat_rva']), code)
+
+    def test_missing_or_invalid_layout_refuses_before_allocation(self):
+        for value in (None, -1, True, 0x10000000):
+            g, controller, pages, entries, state = self.fixture()
+            g.profile['teleport']['qpc_iat_rva'] = value
+            with self.assertRaises(RuntimeError):
+                controller.start()
+            self.assertIsNone(controller.pages)
+            self.assertEqual(pages.exchanges, [])
 
     def test_start_requires_two_valid_samples_and_no_inventory_record(self):
         g, c, pages, entries, state = self.fixture()

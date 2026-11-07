@@ -208,3 +208,10 @@
 | 第5步 | 设置保存 | `step5-6-settings-cache` |
 | 第6步 | 启动校验缓存 | 同上 |
 | 第7步 | 反射动态取偏移（暂缓） | — |
+
+## 同步上游 v0.13.2（Steam build 26367565）
+
+- **改了什么**：合并 `upstream/main`（`447d74c`）。`profile.json` 换新指纹与传送布局；`teleport_unlock.py` 改为从 profile 读 RVA；武器切换冷却改为读 `switch_cooldown_offset`（本版 `0x9f0`），写在 `features/targets.py`；`offsets.py` 文档默认值同步；`app.py` / `build_exe.py` / README / AGENTS / VALIDATION / CHANGELOG 版本号升到 0.13.2。保留 fork 的模块拆分、错误分级、设置保存与哈希缓存，未吞回上游单体 `core.py`。
+- **为什么**：游戏已更新到 Steam build 26367565，旧指纹无法连接；上游把版本相关地址收到 profile。
+- **影响**：未做 Windows 实机验收。本地 Linux 可跑的非 win32 用例通过；依赖 `kernel32` 的用例需在 Windows CI / 实机验证。开往上游的 [PR #1](https://github.com/sdkdsd/PBZ-Trainer/pull/1)（`step8-ci`）对当前 upstream 仍可干净合并，未改该 PR 分支。
+

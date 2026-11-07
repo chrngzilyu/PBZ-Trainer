@@ -131,9 +131,12 @@ class TargetsMixin:
                 raise RuntimeError('武器组件归属不匹配')
             config = self.qword(weapons + O.UNVERIFIED_WEAPON_CONFIG_PTR)
             cls = self.obj(config)['class']
-            self.property(cls, *O.SWITCH_MAIN_COOLDOWN.args)
-            self.property(cls, *O.SWITCH_SHACHI_COOLDOWN.args)
-            return [(config, config + O.SWITCH_MAIN_COOLDOWN.offset, '<dd')]
+            offset = self.profile.get('switch_cooldown_offset')
+            if type(offset) is not int or not 0 < offset < 0x10000 or offset % 8:
+                raise RuntimeError('当前版本缺少已核对的切换冷却布局')
+            self.property(cls, 'Switch Main Weapon Cooldown', offset, 0x100000000, 8)
+            self.property(cls, 'Switch Shachi Weapon Cooldown', offset + 8, 0x100000000, 8)
+            return [(config, config + offset, '<dd')]
         raise ValueError('不支持的功能')
 
     def dust_state(self):
