@@ -150,11 +150,11 @@ def build():
     weapons = im.new_obj(im.new_class('CharacterWeaponsComponent', [('RuntimeWeaponData', 0xf8, T_MAP, 80)]),
                          'Weapons', pawn, size=0x200)
     im.put(pawn + 0xec0, '<Q', weapons)
-    switch = im.new_obj(im.new_class('PBZ_WeaponSwitchConfig', [('Switch Main Weapon Cooldown', 0x9e8, T_DOUBLE, 8),
-                                                                ('Switch Shachi Weapon Cooldown', 0x9f0, T_DOUBLE, 8)]),
-                        'SwitchCfg', size=0xa00)
+    switch = im.new_obj(im.new_class('PBZ_WeaponSwitchConfig', [('Switch Main Weapon Cooldown', 0x9f0, T_DOUBLE, 8),
+                                                                ('Switch Shachi Weapon Cooldown', 0x9f8, T_DOUBLE, 8)]),
+                        'SwitchCfg', size=0xa10)
     im.put(weapons + 0xe8, '<Q', switch)
-    im.put(switch + 0x9e8, '<dd', 1.0, 0.8)
+    im.put(switch + 0x9f0, '<dd', 1.0, 0.8)
     main_cls = im.new_class('PBZ_MainWeaponConfig_C', [('Change Weapon Cooldown', 0xe0, T_DOUBLE, 8)])
     sub_cls = im.new_class('PBZ_SubWeaponConfig_C', [('Change Weapon Cooldown', 0xe0, T_DOUBLE, 8)])
     main = im.new_obj(main_cls, 'MainSword', size=0x100)
@@ -185,7 +185,7 @@ def build():
     im.refs = {'world': world, 'pawn': pawn, 'attributes': attributes, 'weapons': weapons, 'switch': switch,
                'main': main, 'sub': sub, 'backpack': backpack, 'hulu': hulu, 'feijiu': feijiu}
     im.profile = {'base': BASE, 'image_size': SIZE, 'name_pool_rva': im.pool - BASE, 'world_rva': world_rva,
-                  'sha256': 'fixture'}
+                  'sha256': 'fixture', 'switch_cooldown_offset': 0x9f0}
     return im
 
 

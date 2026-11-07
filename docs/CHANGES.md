@@ -215,3 +215,7 @@
 - **为什么**：游戏已更新到 Steam build 26367565，旧指纹无法连接；上游把版本相关地址收到 profile。
 - **影响**：未做 Windows 实机验收。本地 Linux 可跑的非 win32 用例通过；依赖 `kernel32` 的用例需在 Windows CI / 实机验证。开往上游的 [PR #1](https://github.com/sdkdsd/PBZ-Trainer/pull/1)（`step8-ci`）对当前 upstream 仍可干净合并，未改该 PR 分支。
 
+### 跟进：golden trace 适配 `switch_cooldown_offset`
+- **改了什么**：`test_golden_trace.py` 夹具里武器切换冷却字段改为 Main `0x9f0` / Shachi `0x9f8`，并写入 `profile.switch_cooldown_offset = 0x9f0`；按文档流程重录 `tests_golden/trace.json`。
+- **为什么**：v0.13.2 合并后冷却偏移改从 profile 读取，旧夹具仍用 `0x9e8` 且未带 offset，导致 CI 中 golden 在 cooldown 场景变成 `raise`。
+- **影响**：仅测试基线；运行时行为与合并提交一致。这是有意的行为变化重录，不是重构漂移。
